@@ -360,7 +360,12 @@ object OrderReader {
         deltaNeutralOrderType <-
           readNothing(
             if deltaNeutralOrderTypeStr.isEmpty || deltaNeutralOrderTypeStr == "None" then Order.Type.None
-            else Order.Type.values.find(_.apiString == deltaNeutralOrderTypeStr).getOrElse(Order.Type.None)
+            else
+              Order.Type.values
+                .find(_.apiString == deltaNeutralOrderTypeStr)
+                .getOrElse(
+                  throw new IllegalArgumentException(s"unknown deltaNeutralOrderType: $deltaNeutralOrderTypeStr")
+                )
           )
         deltaNeutralAuxPrice <- if version11 then readNothing(Double.MaxValue) else readDoubleMax
         hasDeltaNeutralOrderType = deltaNeutralOrderTypeStr.nonEmpty

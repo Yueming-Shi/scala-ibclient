@@ -194,3 +194,8 @@ object OpenOrdersSpec extends SimpleIOSuite:
     yield expect(blocked.isLeft) and expect.same(List(7), free.map(_.orderId)) and
       expect.same(Vector(List("16", "1")), sent)
   }
+
+  test("readIntMax treats TWS '?' like empty unset (Int.MaxValue)") {
+    import org.quasigroup.ibclient.decoder.Decoder
+    IO.fromEither(Decoder.readIntMax.runA(Array("?"))).map(v => expect(v == Int.MaxValue))
+  }
