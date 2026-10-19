@@ -32,10 +32,14 @@ object AccountSummarySpec extends SimpleIOSuite:
       expect.same(List("63", "1", "9"), cancel)
   }
 
-  pureTest("the default tag list holds every tag of the official API") {
-    val tags = Portfolio.AccountSummaryTags.All.split(',').toList
-    expect.same(29, tags.size) and expect(tags.contains("NetLiquidation")) and expect(tags.contains("Leverage")) and
-      expect.same(tags.distinct, tags)
+  pureTest("the default tag list is exactly the official API's AccountSummaryTags.AllTags") {
+    val official = List("AccountType", "NetLiquidation", "TotalCashValue", "SettledCash", "AccruedCash", "BuyingPower",
+      "EquityWithLoanValue", "PreviousDayEquityWithLoanValue", "GrossPositionValue", "ReqTEquity", "ReqTMargin", "SMA",
+      "InitMarginReq", "MaintMarginReq", "AvailableFunds", "ExcessLiquidity", "Cushion", "FullInitMarginReq",
+      "FullMaintMarginReq", "FullAvailableFunds", "FullExcessLiquidity", "LookAheadNextChange",
+      "LookAheadInitMarginReq", "LookAheadMaintMarginReq", "LookAheadAvailableFunds", "LookAheadExcessLiquidity",
+      "HighestSeverity", "DayTradesRemaining", "Leverage")
+    expect.same(official.mkString(","), Portfolio.AccountSummaryTags.All)
   }
 
   test("accountSummary and accountSummaryEnd decode (server version 177)") {
@@ -70,6 +74,21 @@ object AccountSummarySpec extends SimpleIOSuite:
       sent <- client.sent.get
     yield expect.same(List(line(9, "NetLiquidation", "100")), first) and
       expect.same(List("63", "1", "9"), sent.last)
+  }
+
+  test("a line TWS sends twice is passed on twice (the summary is a subscription, not a de-duplicated snapshot)") {
+    for
+      client <- fakeClient(line(9, "NetLiquidation", "100"), line(9, "NetLiquidation", "100"), AccountSummaryEnd(9))
+      lines <- client.reqAccountSummary(9).compile.toList
+    yield expect.same(List.fill(2)(line(9, "NetLiquidation", "100")), lines)
+  }
+
+  test("the summary is cancelled when it fails too") {
+    for
+      client <- fakeClient(line(9, "NetLiquidation", "100"), ErrorDetail(9, 322, "Maximum number exceeded", ""))
+      result <- client.reqAccountSummary(9).compile.toList.attempt
+      sent <- client.sent.get
+    yield expect(result.isLeft) and expect.same(List("63", "1", "9"), sent.last)
   }
 
   private def run(msgs: ResponseMsg*) =

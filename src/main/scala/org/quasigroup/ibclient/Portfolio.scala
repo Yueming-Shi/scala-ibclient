@@ -136,14 +136,16 @@ object Portfolio:
     /** Every tag. "$LEDGER" / "$LEDGER:ALL" / "$LEDGER:<currency>" can be added to get values per currency. */
     val All: String = List(
       "AccountType", NetLiquidation, TotalCashValue, "SettledCash", "AccruedCash", BuyingPower, "EquityWithLoanValue",
-      "PreviousEquityWithLoanValue", "GrossPositionValue", "ReqTEquity", "ReqTMargin", "SMA", "InitMarginReq",
+      "PreviousDayEquityWithLoanValue", "GrossPositionValue", "ReqTEquity", "ReqTMargin", "SMA", "InitMarginReq",
       "MaintMarginReq", AvailableFunds, "ExcessLiquidity", "Cushion", "FullInitMarginReq", "FullMaintMarginReq",
       "FullAvailableFunds", "FullExcessLiquidity", "LookAheadNextChange", "LookAheadInitMarginReq",
       "LookAheadMaintMarginReq", "LookAheadAvailableFunds", "LookAheadExcessLiquidity", "HighestSeverity",
       "DayTradesRemaining", "Leverage"
     ).mkString(",")
 
-  /** Keeps the account summary lines of request `reqId` until TWS says the summary is complete (accountSummaryEnd).
+  /** Keeps the account summary lines of request `reqId` until TWS says the summary is complete (accountSummaryEnd),
+    * as received: TWS may send the same line more than once, and every one is passed on (fold them into a map keyed by
+    * account, tag and currency for a snapshot).
     * Fails on a TWS error for the request, on an unreadable summary line of this request and when the connection is
     * lost.
     */

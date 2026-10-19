@@ -257,12 +257,17 @@ buying power and margin, and get the answer as a list that ends by itself.
   (`cancelAccountSummary`).
 - The replies carry the request number, so several summaries can run side by side (TWS allows at most two at a
   time and reports an error for a third).
+- Lines are passed on as TWS sends them. TWS may send the same line twice (the paper TWS did, for every tag), so a
+  program that wants one value per tag should keep the latest per account, tag and currency.
 - It fails with an error if TWS reports an error for the request, if one of its lines cannot be read, or if the
   connection is lost. Warnings and errors of other requests do not affect it.
 
+**Fixes made after review:** the default tag list misspelled `PreviousDayEquityWithLoanValue`, so TWS left that
+value out.
+
 **How we check it (unit tests, no TWS needed):** the request and cancel messages are compared with the TWS API
-format; the default tag list holds the official API's 29 tags; canned summary line and "account summary end"
-messages are decoded; the stream keeps only its own lines up to its own end, cancels at the end and when stopped
-early, and fails on its own errors and unreadable lines (not on warnings or other requests') and on connection
+format; the default tag list is exactly the official API's list of 29 tags; canned summary line and "account summary end"
+messages are decoded; the stream keeps only its own lines up to its own end, passes repeated lines on, cancels at
+the end, when stopped early and when it fails, and fails on its own errors and unreadable lines (not on warnings or other requests') and on connection
 loss. An integration test (read only, skipped without the paper TWS on port 7497) reads the paper account summary
 and prints only counts, the tag names and the net liquidation value.
