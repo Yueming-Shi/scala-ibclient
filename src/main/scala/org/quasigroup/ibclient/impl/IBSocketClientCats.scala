@@ -195,16 +195,44 @@ object IBSocketClientCats:
   inline given Decoder[IBClient.ServerVersion] =
     summon[Decoder[Int]].map(IBClient.ServerVersion.apply)
 
-  def make[F[_]: Async: Console](
+  /** TWS paper-trading API port. This is the default. */
+  val PaperPort: Port = port"7497"
+
+  /** Ports that reach a LIVE account (TWS live / IB Gateway live). */
+  val LivePorts: Set[Port] = Set(port"7496", port"4001")
+
+  /** Explicit opt-in needed before [[make]] will connect to a live port. */
+  enum LiveTrading:
+    case Refused, IUnderstandThisIsARealMoneyAccount
+
+  final case class LivePortRefused(port: Port)
+      extends IllegalArgumentException(
+        s"port $port is a LIVE trading port; pass LiveTrading.IUnderstandThisIsARealMoneyAccount to use it"
+      )
+
+  /** Pure check run before any socket is opened. */
+  def checkPort(port: Port, liveTrading: LiveTrading = LiveTrading.Refused): Either[Throwable, Port] =
+    Either.cond(
+      !LivePorts(port) || liveTrading == LiveTrading.IUnderstandThisIsARealMoneyAccount,
+      port,
+      LivePortRefused(port)
+    )
+
+  /** Connection settings. The defaults connect to the paper account on this machine. */
+  final case class Settings(
       host: Host = host"127.0.0.1",
-      port: Port = port"7496",
+      port: Port = PaperPort,
+      clientId: Int = 10,
       optionalCapabilities: Option[String] = None,
-      clientId: Int = 10
-  ): Resource[F, IBClient[F]] =
+      liveTrading: LiveTrading = LiveTrading.Refused
+  )
+
+  def make[F[_]: Async: Console](settings: Settings = Settings()): Resource[F, IBClient[F]] =
     for
+      port <- Resource.eval(checkPort(settings.port, settings.liveTrading).liftTo[F])
       client <- Network[F]
-        .client(SocketAddress(host, port))
-        .map(new IBSocketClientCats[F](_, optionalCapabilities))
-        .evalTap(_.eConnect(clientId))
+        .client(SocketAddress(settings.host, port))
+        .map(new IBSocketClientCats[F](_, settings.optionalCapabilities))
+        .evalTap(_.eConnect(settings.clientId))
       _ <- Resource.onFinalize(client.eDisconnect)
     yield client

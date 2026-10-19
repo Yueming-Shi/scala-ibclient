@@ -16,23 +16,31 @@ import cats.syntax.all.*
 import cats.effect.kernel.Resource
 import cats.effect.{Clock, IO, SyncIO}
 import cats.effect.std.Random
-import org.quasigroup.ibclient.IBSocketClientCatsSuite.expect
 import org.quasigroup.ibclient.impl.IBSocketClientCats
-import org.scalacheck.Gen
-import weaver.IOSuite
-import weaver.scalacheck.*
+import weaver.{Expectations, IOSuite}
 
 import scala.language.postfixOps
 import scala.concurrent.duration._
 
-object IBSocketClientCatsSuite extends IOSuite with Checkers with ContractSpec with OrderSpec:
+/** INTEGRATION tests: they talk to a running Trader Workstation on the PAPER port 7497.
+  *
+  * They are skipped (reported as ignored) when nothing listens on 127.0.0.1:7497, so `sbt test` stays green on any
+  * machine. The client is created with the default settings, which point at the paper port and refuse live ports.
+  */
+object IBSocketClientCatsSuite extends IOSuite with ContractSpec with OrderSpec:
 
-  override type Res = (IBClient[IO], Random[IO])
+  override type Res = Option[(IBClient[IO], Random[IO])]
 
   override def sharedResource: Resource[IO, Res] =
-    IBSocketClientCats.make[IO]().both(Resource.eval(Random.scalaUtilRandom[IO]))
+    Resource.eval(PaperTws.isListening).flatMap {
+      case true  => IBSocketClientCats.make[IO]().both(Resource.eval(Random.scalaUtilRandom[IO])).map(_.some)
+      case false => Resource.pure(None)
+    }
 
-  test("obtain histogram") { case (ibclient, random) =>
+  def integrationTest(name: String)(body: ((IBClient[IO], Random[IO])) => IO[Expectations]): Unit =
+    test(name)(_.fold(ignore(PaperTws.skipReason))(body))
+
+  integrationTest("obtain histogram") { case (ibclient, random) =>
     for {
       tickerId <- random.nextInt
       _ <- ibclient.requestOnly[ReqHistogramData](

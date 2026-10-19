@@ -12,13 +12,17 @@ Client will be obtained as a resource via
 val client: Resource[F, IBClient[F]] = IBSocketClientCats.make[F]()
 ```
 
-with defaults as followed, override to you envirment as needed.
+with defaults as followed (`IBSocketClientCats.Settings`), override to you envirment as needed.
 ```Scala
     host: Host = host"127.0.0.1",
-    port: Port = port"7496",
+    port: Port = PaperPort, // port"7497", the TWS paper-trading port
+    clientId: Int = 10,
     optionalCapabilities: Option[String] = None,
-    clientId: Int = 10
-```      
+    liveTrading: LiveTrading = LiveTrading.Refused
+```
+
+Live ports (7496 for TWS, 4001 for IB Gateway) are refused unless you pass
+`liveTrading = LiveTrading.IUnderstandThisIsARealMoneyAccount`.
 
 
 Request Only
