@@ -202,3 +202,25 @@ object IBSocketClientCatsSuite extends IOSuite with ContractSpec with OrderSpec:
       _ <- IO.println(s"[integration] positions: ${positions.size} in ${positions.map(_.account).distinct.size} account(s)")
     yield expect(positions.forall(p => IBSocketClientCats.isPaperAccount(p.account)))
   }
+
+  /** The first account this paper TWS session manages. */
+  private def firstAccount(ibclient: IBClient[IO]): IO[String] =
+    ibclient
+      .requestThrough[ReqManagedAccts, String](ReqManagedAccts())(_.collectFirst { case ManagedAccounts(a) => a })
+      .compile
+      .lastOrError
+      .timeout(10.seconds)
+      .map(_.split(',').map(_.trim).filter(_.nonEmpty).head)
+
+  integrationTest("take a snapshot of the paper account's values and portfolio (read only)") { case (ibclient, _) =>
+    for
+      account <- firstAccount(ibclient)
+      snap <- ibclient.accountSnapshot(account).timeout(30.seconds)
+      netLiquidation = snap.values.collect { case (("NetLiquidation", currency), v) => s"$v $currency" }
+      // only counts and the net liquidation value are printed, not the account's other details
+      _ <- IO.println(s"[integration] account snapshot: ${snap.values.size} values, ${snap.portfolio.size} " +
+        s"portfolio lines, NetLiquidation ${netLiquidation.mkString(", ")}, paper account: " +
+        IBSocketClientCats.isPaperAccount(snap.account))
+    yield expect.same(account, snap.account) and expect(snap.values.nonEmpty) and expect(netLiquidation.nonEmpty) and
+      expect(snap.portfolio.forall(_.accountName == account))
+  }

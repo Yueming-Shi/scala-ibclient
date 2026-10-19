@@ -42,6 +42,9 @@ trait IBClient[F[_]: Async]:
   /** Position replies carry no request id, so only one positions request may run at a time on a connection. */
   def positionsLock: Mutex[F]
 
+  /** TWS keeps one account-updates subscription per connection, so only one runs at a time. */
+  def accountUpdatesLock: Mutex[F]
+
   /** Subscribes, then sends `request`, then streams the incoming messages through `responses`.
     *
     * Always give `Req` explicitly: enum constructors such as `ReqMktData(...)` are typed as `RequestMsg`, which would
@@ -182,6 +185,35 @@ trait IBClient[F[_]: Async]:
 
   def cancelPositions: F[Unit] =
     requestOnly[CancelPositions](CancelPositions())
+
+  /** Subscribes to the values and portfolio of `account` (as given by the managed accounts, e.g. "DU1234567"; empty
+    * means the only account of a non-advisor login). TWS first sends the whole account, then accountDownloadEnd, then
+    * changes about every 3 minutes. The stream never ends by itself; when it is stopped, the subscription is
+    * cancelled. Fails if an update cannot be read, on a TWS error without request id and when the connection is lost.
+    * Concurrent calls wait for each other; if one is stopped before its accountDownloadEnd arrived, the next one also
+    * waits (at most `staleEndWait`) for that late accountDownloadEnd, so it cannot end the next snapshot early.
+    */
+  def reqAccountUpdates(
+      account: String,
+      staleEndWait: FiniteDuration = Portfolio.DefaultStaleEndWait
+  ): Stream[F, Portfolio.AccountUpdate] =
+    val unsubscribe = requestOnly[ReqAccountUpdates](ReqAccountUpdates(subscribe = false, acctCode = account))
+    val awaitStaleEnd =
+      subscribe.use(_.collectFirst { case _: AccountDownloadEnd => () }.compile.drain).timeout(staleEndWait).attempt.void
+    Stream.resource(accountUpdatesLock.lock) >> Stream.eval(cats.effect.Ref.of[F, Boolean](false)).flatMap { ended =>
+      requestThrough[ReqAccountUpdates, Portfolio.AccountUpdate](ReqAccountUpdates(subscribe = true, acctCode = account))(
+        Portfolio.accountUpdates(account)
+      ).evalTap {
+        case _: AccountDownloadEnd => ended.set(true)
+        case _                     => Async[F].unit
+      }.onFinalize(unsubscribe >> ended.get.flatMap(if _ then Async[F].unit else awaitStaleEnd))
+    }
+
+  /** The values and portfolio of `account` as one snapshot, up to accountDownloadEnd; then the subscription is
+    * cancelled. TWS sends nothing for an unknown account, so put a timeout on it.
+    */
+  def accountSnapshot(account: String): F[Portfolio.AccountSnapshot] =
+    reqAccountUpdates(account).through(Portfolio.snapshot(account)).compile.lastOrError
 
   def reqManagedAccts: F[ManagedAccounts] =
     requestSingleResponse[ReqManagedAccts, ManagedAccounts](ReqManagedAccts())

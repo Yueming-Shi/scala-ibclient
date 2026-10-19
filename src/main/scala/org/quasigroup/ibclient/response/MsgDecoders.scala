@@ -70,8 +70,8 @@ object MsgDecoders:
           summon[Decoder[TickEFP]](entry.tail.tail)
         case ORDER_STATUS =>
           OrderStatusMsgReader.create(using serverVersion).runA(entry.tail)
-        case ACCT_VALUE =>
-          UpdateAccountValueReader.create(using serverVersion).runA(entry.tail.tail)
+        case ACCT_VALUE => // msgId, version, key, value, currency, accountName: the reader reads the version
+          UpdateAccountValueReader.create(using serverVersion).runA(entry.tail)
         case PORTFOLIO_VALUE =>
           UpdatePortfolioReader.create(using serverVersion).runA(entry.tail)
         case ACCT_UPDATE_TIME =>

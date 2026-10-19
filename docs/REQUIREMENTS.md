@@ -198,3 +198,40 @@ request number (but not on notices or other requests' errors) and on connection 
 one is running, and a request stopped before "position end" keeps the lock until that end arrives or the wait is
 over. An integration test (read only, skipped without the paper TWS on port 7497) lists the paper account's
 positions and prints only how many there are.
+
+### 6b. Account values and portfolio
+
+**What it does:** the program can follow one account's values (cash, net liquidation value, buying power, ...)
+and its portfolio (every holding with its market price and value, average cost and profit or loss), or take one
+snapshot of them.
+
+- `reqAccountUpdates(account)` subscribes to one account (for example "DU1234567"; an empty account code means
+  the only account of a normal, non-advisor login). TWS first sends the whole account, then says it is done
+  ("account download end"), then sends changes about every 3 minutes. The stream passes on:
+  - account values: a name (for example `NetLiquidation`), a value, a currency and the account;
+  - portfolio lines: the instrument, the position, market price, market value, average cost, unrealized and
+    realized profit or loss, and the account;
+  - the time of TWS's last update, and the "account download end" marker.
+- Messages for another account are left out. The stream never ends by itself; when the program stops it, the
+  library tells TWS to stop sending (unsubscribe).
+- `accountSnapshot(account)` is the convenient way to get one picture of the account: it collects everything up
+  to "account download end", keeping the latest value of each name and currency and the latest line of each
+  instrument, then unsubscribes. TWS sends nothing at all for an unknown account, so put a time limit on it.
+- It fails with an error if an account update cannot be read, if TWS reports an error without request number
+  (other than notices such as "market data farm connection is OK"), or if the connection is lost.
+- TWS keeps only one account subscription per connection, so only one runs at a time; a second one waits for the
+  first. If the first was stopped before its "account download end" arrived, the second one also waits for that
+  late marker (at most 2 seconds by default), so it cannot end the second snapshot too early.
+
+**Fixes made along the way:** account values were read one field off (the message version was skipped twice), so
+every account value failed to decode.
+
+**How we check it (unit tests, no TWS needed):** subscribe and unsubscribe messages are compared with the TWS API
+format; canned account value, portfolio (message version 8, server version 177), update time and download end
+messages are decoded; the stream keeps only its account's updates and unsubscribes when stopped; the snapshot
+keeps the latest value and portfolio line of each, ignores what comes after "account download end", and takes the
+account name from that marker when the account code is empty; the stream fails on an unreadable account update
+(not on other unreadable messages), on a TWS error without request number (not on notices) and on connection loss;
+subscriptions run one at a time, and one stopped before its end keeps the lock until the end arrives or the wait is
+over. An integration test (read only, skipped without the paper TWS on port 7497) takes a snapshot of the paper
+account and prints only counts and the net liquidation value.

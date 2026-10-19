@@ -42,7 +42,8 @@ class IBSocketClientCats[F[_]: Async: Console](
     socket: Socket[F],
     optionalCapabilities: Option[String],
     override val openOrdersLock: Mutex[F],
-    override val positionsLock: Mutex[F]
+    override val positionsLock: Mutex[F],
+    override val accountUpdatesLock: Mutex[F]
 ) extends IBClient[F]:
   import IBSocketClientCats.{*, given}
 
@@ -295,7 +296,10 @@ object IBSocketClientCats:
       socket <- Network[F].client(SocketAddress(settings.host, port))
       openOrdersLock <- Resource.eval(Mutex[F])
       positionsLock <- Resource.eval(Mutex[F])
-      client = new IBSocketClientCats[F](socket, settings.optionalCapabilities, openOrdersLock, positionsLock)
+      accountUpdatesLock <- Resource.eval(Mutex[F])
+      client = new IBSocketClientCats[F](
+        socket, settings.optionalCapabilities, openOrdersLock, positionsLock, accountUpdatesLock
+      )
       _ <- Resource.make(client.eConnect(settings.clientId))(_ => client.eDisconnect)
       _ <- Resource.eval(
         client.managedAccounts.timeout(10.seconds).flatMap(checkAccounts(_, settings.liveTrading).liftTo[F])

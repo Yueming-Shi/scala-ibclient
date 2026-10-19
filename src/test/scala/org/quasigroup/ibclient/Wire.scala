@@ -52,6 +52,7 @@ object Wire:
       val sent: Ref[IO, Vector[List[String]]],
       val openOrdersLock: Mutex[IO],
       val positionsLock: Mutex[IO],
+      val accountUpdatesLock: Mutex[IO],
       endless: Boolean
   ) extends IBClient[IO]:
     def requestOnly[Req <: RequestMsg: MsgEncoder](request: Req): IO[Unit] =
@@ -69,4 +70,6 @@ object Wire:
   def endlessFakeClient(incoming: ResponseMsg*): IO[FakeClient] = makeFakeClient(incoming.toList, endless = true)
 
   private def makeFakeClient(incoming: List[ResponseMsg], endless: Boolean): IO[FakeClient] =
-    (Ref.of[IO, Vector[List[String]]](Vector.empty), Mutex[IO], Mutex[IO]).mapN(FakeClient(incoming, _, _, _, endless))
+    (Ref.of[IO, Vector[List[String]]](Vector.empty), Mutex[IO], Mutex[IO], Mutex[IO]).mapN(
+      FakeClient(incoming, _, _, _, _, endless)
+    )
