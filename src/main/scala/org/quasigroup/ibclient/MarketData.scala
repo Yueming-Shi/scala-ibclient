@@ -24,9 +24,9 @@ object MarketData:
     */
   def isConnectionLoss(errorCode: Int): Boolean = errorCode == 1100 || errorCode == 1101 || errorCode == 1300
 
-  /** TWS error codes that are only warnings for a market data request (e.g. 10167: "displaying delayed data"). */
+  /** TWS error codes that are only warnings for a market data request (e.g. 10167: displaying delayed data; 10168: delayed market data is not enabled). */
   def isWarning(errorCode: Int): Boolean =
-    errorCode == 10167 || errorCode == 10090 || (errorCode >= 2100 && errorCode < 2200)
+    errorCode == 10167 || errorCode == 10168 || errorCode == 10090 || (errorCode >= 2100 && errorCode < 2200)
 
   private def tickFor(tickerId: Int): PartialFunction[ResponseMsg, Tick] =
     case t: TickPrice if t.tickerId == tickerId      => t

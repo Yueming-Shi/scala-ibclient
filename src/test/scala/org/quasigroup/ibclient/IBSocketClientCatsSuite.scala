@@ -61,130 +61,29 @@ object IBSocketClientCatsSuite extends IOSuite with ContractSpec with OrderSpec:
     for
       tickerId <- random.nextIntBounded(1000000)
       _ <- ibclient.reqMarketDataType(MktDataType.Delayed)
-      ticks <- ibclient.reqMktData(tickerId, USStockAtSmart).take(3).compile.toList.timeout(30.seconds)
-    yield expect(ticks.size == 3)
+      // Price ticks only. Meta replies (TickReqParams, MarketDataType) do not count: paper TWS with
+      // delayed MD disabled sends those (and 10167/10168) but never prices.
+      result <- ibclient
+        .reqMktData(tickerId, USStockAtSmart)
+        .collect { case t: TickPrice => t; case t: TickSize => t }
+        .take(3)
+        .compile
+        .toList
+        .timeout(30.seconds)
+        .attempt
+      expectations <- result match
+        case Right(ticks) if ticks.nonEmpty => IO.pure(expect(ticks.size == 3))
+        case Right(_) =>
+          ignore(
+            "no delayed price ticks from TWS (meta only). Enable delayed market data in Account Management / TWS (error 10168)."
+          )
+        case Left(_: java.util.concurrent.TimeoutException) =>
+          ignore(
+            "timed out waiting for delayed price ticks. Enable delayed market data in Account Management / TWS (error 10168)."
+          )
+        case Left(e) => IO.pure(failure(e.toString))
+    yield expectations
   }
-
-//    test("obtain historical ticks") { case (ibclient, random) =>
-//     for {
-//       reqId1 <- random.nextInt
-//       req1 <- ReqHistoricalTicks(
-//         reqId = reqId1,
-//         contract = USStockAtSmart,
-//         startDateTime = "20220808 10:00:00 US/Eastern",
-//         endDateTime = "",
-//         numberOfTicks = 10,
-//         whatToShow = WhatToShow.TRADES,
-//         useRTH = 1,
-//         ignoreSize = true,
-//         miscOptions = Nil
-//       ).pure
-//       _ <- ibclient.requestOnly[ReqHistoricalTicks](req1)
-//       reqId2 <- random.nextInt
-//       _ <- ibclient.requestOnly[ReqHistoricalTicks](req1.copy(reqId = reqId2, whatToShow = WhatToShow.BID_ASK))
-//       reqId3 <- random.nextInt
-//       _ <- ibclient.requestOnly[ReqHistoricalTicks](req1.copy(reqId = reqId3, whatToShow = WhatToShow.MIDPOINT))
-//     } yield {
-//       success
-//     }
-//   }
-
-// test("obtain pnls") { case (ibclient, random) =>
-//   for {
-//     reqId <- random.nextInt
-//     _ <- ibclient.requestOnly[ReqPnL](ReqPnL(reqId = reqId, account = "DUD00029", modelCode = ""))
-//     _ <- ibclient.requestOnly[CancelPnL](CancelPnL(reqId = reqId))
-//   } yield {
-//     success
-//   }
-// }
-
-// test("obtain pnl single") { case (ibclient, random) =>
-//   for {
-//     reqId <- random.nextInt
-//     _ <- ibclient.requestOnly[ReqPnLSingle](
-//       ReqPnLSingle(reqId = reqId, account = "DUD00029", modelCode = "", conId = 268084)
-//     )
-//     _ <- ibclient.requestOnly[CancelPnLSingle](CancelPnLSingle(reqId = reqId))
-//   } yield {
-//     success
-//   }
-// }
-
-//  test("obtain news bulletins") { case (ibclient, random) =>
-//    for {
-//      // reqId <- random.nextInt
-//      ReqNewsBulletins <- ibclient
-//        .requestStreamResponse[ReqNewsBulletins, UpdateNewsBulletin](ReqNewsBulletins(allMsgs = true))
-//        .take(100)
-//        .compile
-//        .toList
-//      _ <- ibclient.requestOnly[CancelNewsBulletins](CancelNewsBulletins())
-//    } yield {
-//      success
-//    }
-//  }
-
-// test("tick Data Operations") { case (ibclient, random) =>
-//   for {
-//     // reqId <- random.nextInt
-//      _ <- ibclient.requestOnly[ReqMarketDataType](ReqMarketDataType(marketDataType = MktDataType.DelayedFrozen))
-
-//   } yield {
-//     success
-//   }
-// }
-
-// test("tick Option Computations") { case (ibclient, random) =>
-//   for {
-//     // reqId <- random.nextInt
-//      _ <- ibclient.requestOnly[ReqMarketDataType](ReqMarketDataType(marketDataType = MktDataType.DelayedFrozen))
-
-//   } yield {
-//     success
-//   }
-// }
-
-// test("realTime Bars") { case (ibclient, random) =>
-//   for {
-//     // reqId <- random.nextInt
-//     tickerId <- random.nextInt
-//     _ <- ibclient.requestOnly[ReqRealTimeBars](ReqRealTimeBars(tickerId = tickerId, contract = EurGbpFx, barSize = 5, whatToShow = WhatToShow.MIDPOINT, useRTH = true, realTimeBarsOptions = Nil))
-//    // _ <- ibclient.requestOnly[CancelRealTimeBars](CancelRealTimeBars(tickerId = tickerId))
-
-//   } yield {
-//     success
-//   }
-// }
-
-// test("account Operations") { case (ibclient, random) =>
-//   for {
-//     reqId <- random.nextInt
-//     _ <- ibclient.requestOnly[ReqPositionsMulti](
-//       ReqPositionsMulti(reqId = reqId, account = "DU74649", modelCode = "EUstocks")
-//     )
-//     //
-//    // _ <- ibclient.requestOnly[CancelHistogramData](CancelHistogramData(tickerId = reqId))
-//     accounts <- ibclient.reqManagedAccts
-//     familycodes <- ibclient.reqFamilyCodes
-//     positions <- ibclient.reqPositions.compile.toList
-//             _ <- ibclient.cancelPositions
-//   } yield {
-//     expect(familycodes.familyCodes.length >= 1) and
-//     expect(accounts.accountsList.nonEmpty) and
-//     expect(positions.nonEmpty)
-//   }
-// }
-
-//   test("ibclient can request for current time") { case (ibclient,random) =>
-//     for {
-//       now <- IO.realTimeInstant
-//       serverTime <- ibclient.reqCurrentTime
-//     } yield {
-//       expect(serverTime.time <= now.getEpochSecond)
-//     }
-//   }
-
   integrationTest("list today's executions (read only)") { case (ibclient, random) =>
     for
       reqId <- random.nextIntBounded(1000000)

@@ -190,3 +190,13 @@ object MarketDataSpec extends SimpleIOSuite:
       expect.same(List(TickReqParams(42, 0.01, "9c0001", 3), TickNews(42, 1697665000L, "BZ", "BZ$123", "Headline", "x")), msgs)
     )
   }
+  test("10168 (delayed market data not enabled) is a warning, not a hard fail") {
+    val msgs = List(
+      TickPrice(42, TickType.LAST, 101.0, TickAttrib(), None),
+      ErrorDetail(42, 10168, "Delayed market data is not enabled.", ""),
+      TickSize(42, TickType.LAST_SIZE, Decimal(BigDecimal(5)))
+    )
+    Stream.emits(msgs).through(MarketData.ticks[IO](42)).compile.toList.map(ticks =>
+      expect.same(List(msgs(0), msgs(2)), ticks)
+    )
+  }
