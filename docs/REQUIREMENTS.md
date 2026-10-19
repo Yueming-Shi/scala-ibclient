@@ -298,3 +298,35 @@ the same way; each stream keeps only its own updates and
 cancels when stopped; the stream fails on its own errors and unreadable updates (not on warnings or other
 requests') and on connection loss. An integration test (read only, skipped without the paper TWS on port 7497)
 waits for the paper account's first PnL update and prints only which values TWS knows, not the amounts.
+
+## 7. Placing and cancelling orders (paper only)
+
+**Why:** to send a practice order to the paper account and follow it until it is filled or cancelled. A mistake
+on the live account would spend real money, so this feature refuses anything but the paper TWS.
+
+**What it does:**
+
+- `placeOrder(orderId, contract, order)` sends the order and returns a stream of that order's events: open-order
+  snapshots, status updates (PreSubmitted, Submitted, Filled, Cancelled, ...) and TWS errors for that order (for
+  example 202 "Order Canceled"). The stream ends when the order is done (cancelled, completely filled or inactive),
+  the same way as feature 4, or on a non-warning TWS error other than 202. Use `nextValidOrderId` to get a free
+  order id from TWS before placing.
+- `cancelOrder(orderId)` cancels an order this program placed. On recent TWS versions it also sends an optional
+  "manual cancel time" (empty by default).
+- `reqGlobalCancel` cancels every open order in TWS, including ones typed in by hand.
+- All three refuse unless this session is paper-only: connected to the paper TWS port **7497**, without the live
+  trading opt-in, and every managed account id starts with "D". The IB Gateway paper port 4002 is not enough.
+- The placeOrder message follows the TWS API at server version 177 (no message version field; FA profile field
+  omitted; manual order time and peg offsets included when set).
+
+**Fixes made along the way:** the place-order encoder wrote the auxiliary price twice and crashed on an ordinary
+limit order that has no volatility or hedge fields; it also skipped the "randomize size / price" flags. Cancel
+on recent servers now sends the manual-cancel-time field.
+
+**How we check it (unit tests, no TWS needed):** the paper-session guard accepts only port 7497 with paper
+accounts and no live opt-in; cancelOrder encodes with and without the manual-cancel-time field; reqGlobalCancel
+and reqIds match the TWS API; a 1-share LMT DAY placeOrder starts with the expected contract and order fields and
+contains no market order; the events stream keeps one order's openOrder / status / error until Cancelled or
+Filled, ignores other orders, and fails on connection loss. An integration test (paper TWS on 7497 only) places
+a 1-share SPY LMT BUY far below the market (so it cannot fill), waits for Submitted or PreSubmitted, cancels it,
+checks Cancelled, and cancels again in a finalizer if anything goes wrong. Never a market order, never port 7496.

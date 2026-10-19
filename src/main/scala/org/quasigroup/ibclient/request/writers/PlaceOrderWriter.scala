@@ -82,7 +82,6 @@ object PlaceOrderWriter {
         if serverVersion < MIN_SERVER_VER_TRAILING_PERCENT
         then write(if a.order.auxPrice == Double.MaxValue then 0 else a.order.auxPrice)
         else write(if a.order.auxPrice == Double.MaxValue then "" else a.order.auxPrice.toString)
-      _ <- write(a.order.auxPrice)
       _ <- write(a.order.tif)
       _ <- write(a.order.ocaGroup)
       _ <- write(a.order.account)
@@ -161,7 +160,7 @@ object PlaceOrderWriter {
       )
       _ <- write(a.order.overridePercentageConstraints)
       _ <- write(a.order.volOrderFields.map(_.volatility).getOrElse(Double.MaxValue))
-      _ <- write(a.order.volOrderFields.map(_.volatilityType).get)
+      _ <- write(a.order.volOrderFields.map(_.volatilityType).getOrElse(VolatilityType.None))
       _ <- write(a.order.volOrderFields.map(_.deltaNeutralOrderType).getOrElse(Order.Type.None))
       _ <- write(a.order.volOrderFields.map(_.deltaNeutralAuxPrice).getOrElse(Double.MaxValue))
       _ <-
@@ -179,8 +178,8 @@ object PlaceOrderWriter {
             )
           yield ()
         else writeNothing
-      _ <- write(a.order.volOrderFields.map(_.continuousUpdate).get)
-      _ <- write(a.order.volOrderFields.map(_.referencePriceType).get)
+      _ <- write(a.order.volOrderFields.map(_.continuousUpdate).getOrElse(0))
+      _ <- write(a.order.volOrderFields.map(_.referencePriceType.ordinal).getOrElse(Int.MaxValue))
       _ <- write(a.order.trailStopPrice)
       _ <- write(a.order.trailingPercent)
       _ <- write(a.order.scaleFields.scaleInitLevelSize)
@@ -202,10 +201,10 @@ object PlaceOrderWriter {
       _ <- write(a.order.scaleTable)
       _ <- write(a.order.activeStartTime)
       _ <- write(a.order.activeStopTime)
-      _ <- write(a.order.hedgeFields.map(_.`type`).get)
+      _ <- write(a.order.hedgeFields.map(_.`type`).getOrElse(HedgeType.None))
       _ <-
-        if a.order.hedgeFields.map(_.`type`).get != HedgeType.None
-        then write(a.order.hedgeFields.map(_.value).get)
+        if a.order.hedgeFields.map(_.`type`).getOrElse(HedgeType.None) != HedgeType.None
+        then write(a.order.hedgeFields.map(_.value).getOrElse(""))
         else writeNothing
       _ <- write(a.order.optOutSmartRouting)
       _ <- write(a.order.clearingAccount)
@@ -241,6 +240,8 @@ object PlaceOrderWriter {
       _ <- write(a.order.whatIf)
       _ <- write(a.order.orderMiscOptions)
       _ <- write(a.order.solicited)
+      _ <- write(a.order.randomizeSize)
+      _ <- write(a.order.randomizePrice)
       _ <-
         if a.order.orderType == Order.Type.PEG_BENCH then
           for

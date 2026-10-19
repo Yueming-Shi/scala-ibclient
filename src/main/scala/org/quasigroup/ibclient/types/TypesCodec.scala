@@ -155,7 +155,7 @@ object TypesCodec:
     summon[Decoder[String]].map(SecIdType.valueOf)
 
   inline given Encoder[SecIdType] =
-    summon[Encoder[String]].contramap(_.toString)
+    summon[Encoder[String]].contramap(t => if t == SecIdType.None then "" else t.toString)
 
   inline given Decoder[WhatToShow] =
     summon[Decoder[String]].map(WhatToShow.valueOf)

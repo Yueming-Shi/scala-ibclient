@@ -42,6 +42,11 @@ trait IBClient[F[_]: Async]:
   /** Position replies carry no request id, so only one positions request may run at a time on a connection. */
   def positionsLock: Mutex[F]
 
+  /** Fails unless this session is paper-only: the paper TWS port 7497, no live-trading opt-in, and every managed
+    * account id starts with "D". Order placement and cancellation call this first.
+    */
+  def requirePaperSession: F[Unit]
+
   /** TWS keeps one account-updates subscription per connection, so only one runs at a time. */
   def accountUpdatesLock: Mutex[F]
 
@@ -262,6 +267,32 @@ trait IBClient[F[_]: Async]:
     )(ProfitAndLoss.pnlSingle(reqId)).onFinalize(cancelPnLSingle(reqId))
 
   def cancelPnLSingle(reqId: Int): F[Unit] = requestOnly[CancelPnLSingle](CancelPnLSingle(reqId = reqId))
+
+  /** Places an order and streams its open-order, status and error events until the order is done (cancelled, filled
+    * or inactive) or a TWS error ends it. Refuses unless [[requirePaperSession]] succeeds. Allocate `orderId` with
+    * [[nextValidOrderId]].
+    */
+  def placeOrder(orderId: Int, contract: Contract, order: Order): Stream[F, Orders.OrderEvent] =
+    Stream.eval(requirePaperSession) >>
+      requestThrough[PlaceOrder, Orders.OrderEvent](
+        PlaceOrder(id = orderId, contract = contract, order = order.copy(orderId = orderId))
+      )(Orders.eventsOf(orderId))
+
+  /** Cancels an order this program placed. Refuses unless [[requirePaperSession]] succeeds. */
+  def cancelOrder(orderId: Int, manualCancelOrderTime: String = ""): F[Unit] =
+    requirePaperSession >>
+      requestOnly[CancelOrder](CancelOrder(id = orderId, manualCancelOrderTime = manualCancelOrderTime))
+
+  /** Cancels every open order in TWS (API and manually entered). Refuses unless [[requirePaperSession]] succeeds. */
+  def reqGlobalCancel: F[Unit] =
+    requirePaperSession >> requestOnly[ReqGlobalCancel](ReqGlobalCancel())
+
+  /** Asks TWS for the next unused order id (and reserves it). */
+  def nextValidOrderId: F[Int] =
+    subscribe.use(msgs =>
+      requestOnly[ReqIds](ReqIds(numIds = 1)) *>
+        msgs.collectFirst { case NextValidId(id) => id }.compile.lastOrError
+    )
 
   def reqManagedAccts: F[ManagedAccounts] =
     requestSingleResponse[ReqManagedAccts, ManagedAccounts](ReqManagedAccts())

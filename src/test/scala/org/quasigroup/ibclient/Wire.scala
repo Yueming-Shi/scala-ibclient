@@ -68,6 +68,7 @@ object Wire:
       Stream.emits(incoming).covary[IO].collectFirst { case r: Resp => r }.compile.lastOrError
     def fetchResponseStream[Resp <: ResponseMsg: ClassTag]: Stream[IO, Resp] =
       Stream.emits(incoming).covary[IO].collect { case r: Resp => r }
+    def requirePaperSession: IO[Unit] = IO.unit
 
   def fakeClient(incoming: ResponseMsg*): IO[FakeClient] = makeFakeClient(incoming.toList, endless = false)
 

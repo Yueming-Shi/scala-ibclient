@@ -55,3 +55,30 @@ object Orders:
   /** The status updates of one order, completing with its final one (see [[isDone]]). */
   def statusesOf[F[_]: RaiseThrowable](orderId: Int): Pipe[F, ResponseMsg, OrderStatusMsg] =
     _.through(statuses).filter(_.orderId == orderId).takeThrough(!isDone(_))
+
+  /** One event of an order this program placed: an open-order snapshot, a status update, or a TWS error for that order
+    * (for example 202 "Order Canceled").
+    */
+  type OrderEvent = OpenOrder | OrderStatusMsg | ErrorDetail
+
+  /** The open-order, status and error events of one order, completing with its final status (see [[isDone]]) or with a
+    * non-warning TWS error for that order that is not the usual "Order Canceled" (202). Connection loss fails the
+    * stream. Warnings and messages of other orders are ignored.
+    */
+  def eventsOf[F[_]: RaiseThrowable](orderId: Int): Pipe[F, ResponseMsg, OrderEvent] =
+    _.flatMap[F, OrderEvent] {
+      case o: OpenOrder if o.orderId == orderId => Stream.emit(o)
+      case s: OrderStatusMsg if s.orderId == orderId => Stream.emit(s)
+      case e: ErrorDetail if e.id == orderId && !MarketData.isWarning(e.errorCode) => Stream.emit(e)
+      case Unreadable(fields, reason, _)
+          if fields.headOption.contains(OpenOrderMsgId) || fields.headOption.contains(OrderStatusMsgId) =>
+        Stream.raiseError[F](UnreadableOrder(fields, reason))
+      case ErrorDetail(-1, code, msg, _) if MarketData.isConnectionLoss(code) =>
+        Stream.raiseError[F](StatusConnectionLost(s"[$code] $msg"))
+      case ConnectionClosed => Stream.raiseError[F](StatusConnectionLost("TWS closed the connection"))
+      case _                => Stream.empty
+    }.takeThrough {
+      case s: OrderStatusMsg => !isDone(s)
+      case e: ErrorDetail    => e.errorCode == 202 // keep going until status says Cancelled
+      case _                 => true
+    }

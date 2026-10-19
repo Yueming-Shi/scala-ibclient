@@ -163,7 +163,8 @@ enum RequestMsg:
       order: Order
   ) extends RequestMsg
 
-  case CancelOrder(msgId: Int = CANCEL_ORDER, version: Int = 1, id: Int) extends RequestMsg
+  case CancelOrder(msgId: Int = CANCEL_ORDER, version: Int = 1, id: Int, manualCancelOrderTime: String = "")
+      extends RequestMsg
 
   case ReqAccountUpdates(
       msgId: Int = REQ_ACCOUNT_DATA,

@@ -88,6 +88,14 @@ object MsgEncoders:
     def apply(a: PlaceOrder)(using serverVersion: IBClient.ServerVersion): mutable.Buffer[Byte] =
       PlaceOrderWriter(a)(using serverVersion).runS(mutable.Buffer.empty).value
 
+
+  inline given MsgEncoder[CancelOrder] with
+    def apply(a: CancelOrder)(using serverVersion: IBClient.ServerVersion): mutable.Buffer[Byte] =
+      val fields =
+        List(a.msgId.toString, a.version.toString, a.id.toString) ++
+          (if serverVersion >= IBClient.MIN_SERVER_VER_MANUAL_ORDER_TIME then List(a.manualCancelOrderTime) else Nil)
+      fields.flatMap(f => summon[Encoder[String]](f)).toBuffer
+
   inline given MsgEncoder[ReqExecutions] with
     def apply(a: ReqExecutions)(using serverVersion: IBClient.ServerVersion): mutable.Buffer[Byte] =
       ReqExecutionsWriter(a).runS(mutable.Buffer.empty).value

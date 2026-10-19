@@ -248,3 +248,53 @@ object IBSocketClientCatsSuite extends IOSuite with ContractSpec with OrderSpec:
       _ <- IO.println(s"[integration] PnL update received; known daily/unrealized/realized: ${known.mkString("/")}")
     yield expect.same(reqId, first.reqId)
   }
+
+  integrationTest("place and cancel a far-below-market paper LMT (1 share SPY @ $1 DAY)") { case (ibclient, _) =>
+    val contract =
+      Contract(symbol = "SPY", secType = SecType.STK, currency = "USD", exchange = "SMART")
+    val order = Order(
+      action = Action.BUY,
+      totalQuantity = Decimal.ONE,
+      orderType = Order.Type.LMT,
+      lmtPrice = 1.0,
+      auxPrice = 0.0,
+      tif = TimeInForce.DAY,
+      openClose = "",
+      discretionaryAmt = 0.0
+    )
+    def isWorking(s: Order.Status): Boolean =
+      s == Order.Status.PreSubmitted || s == Order.Status.Submitted || s == Order.Status.PendingSubmit
+
+    for
+      orderId <- ibclient.nextValidOrderId.timeout(15.seconds)
+      // cancel in a finalizer even if the assertions fail or the wait times out
+      result <- ibclient
+        .placeOrder(orderId, contract, order)
+        .evalTap {
+          case s: OrderStatusMsg if isWorking(s.status) =>
+            ibclient.cancelOrder(orderId)
+          case e: ErrorDetail if e.errorCode == 321 && e.errorMsg.toLowerCase.contains("read-only") =>
+            IO.raiseError(
+              new IllegalStateException(
+                "TWS API is in Read-Only mode; uncheck Read-Only API in Global Configuration → API → Settings to place paper orders"
+              )
+            )
+          case _ => IO.unit
+        }
+        .compile
+        .toList
+        .timeout(60.seconds)
+        .guarantee(ibclient.cancelOrder(orderId).timeout(5.seconds).attempt.void)
+      statuses = result.collect { case s: OrderStatusMsg => s.status }
+      _ <- IO.println(
+        s"[integration] paper orderId=$orderId statuses=${statuses.map(_.toString).mkString(" -> ")} " +
+          s"(events=${result.size})"
+      )
+    yield expect(statuses.exists(isWorking)) and expect(statuses.contains(Order.Status.Cancelled)) and
+      expect(!statuses.contains(Order.Status.Filled)) and
+      expect(result.forall {
+        case o: OpenOrder      => o.orderId == orderId
+        case s: OrderStatusMsg => s.orderId == orderId
+        case e: ErrorDetail    => e.id == orderId
+      })
+  }

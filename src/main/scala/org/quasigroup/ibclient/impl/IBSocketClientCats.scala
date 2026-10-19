@@ -43,7 +43,10 @@ class IBSocketClientCats[F[_]: Async: Console](
     optionalCapabilities: Option[String],
     override val openOrdersLock: Mutex[F],
     override val positionsLock: Mutex[F],
-    override val accountUpdatesLock: Mutex[F]
+    override val accountUpdatesLock: Mutex[F],
+    private val connectedPort: Port,
+    private val liveTrading: IBSocketClientCats.LiveTrading,
+    private val sessionAccounts: Deferred[F, String]
 ) extends IBClient[F]:
   import IBSocketClientCats.{*, given}
 
@@ -89,6 +92,11 @@ class IBSocketClientCats[F[_]: Async: Console](
     subscribe.use(msgs =>
       requestOnly[ReqManagedAccts](ReqManagedAccts()) *>
         msgs.collectFirst { case ManagedAccounts(accounts) => accounts }.compile.lastOrError
+    )
+
+  override def requirePaperSession: F[Unit] =
+    sessionAccounts.get.flatMap(accounts =>
+      checkPaperOrders(connectedPort, liveTrading, accounts).liftTo[F]
     )
 
   override def fetchSingleResponse[Resp <: ResponseMsg: ClassTag]: F[Resp] =
@@ -267,6 +275,29 @@ object IBSocketClientCats:
   /** IB paper account ids start with "D" (DU..., DF...); live ones do not. */
   def isPaperAccount(account: String): Boolean = account.startsWith("D")
 
+  final case class PaperOrdersRefused(reason: String)
+      extends IllegalStateException(s"paper-only order operation refused: $reason")
+
+  /** Order placement and cancellation: paper TWS port 7497, no live opt-in, every managed account a paper account. */
+  def checkPaperOrders(
+      port: Port,
+      liveTrading: LiveTrading,
+      accounts: String
+  ): Either[Throwable, Unit] =
+    for
+      _ <- Either.cond(
+        port == PaperPort,
+        (),
+        PaperOrdersRefused(s"connected port is $port, not the paper TWS port $PaperPort")
+      )
+      _ <- Either.cond(
+        liveTrading == LiveTrading.Refused,
+        (),
+        PaperOrdersRefused("this connection opted in to live trading")
+      )
+      _ <- checkAccounts(accounts, LiveTrading.Refused).leftMap(e => PaperOrdersRefused(e.getMessage))
+    yield ()
+
   /** Pure check run right after the handshake: every managed account must be a paper account (TWS ports are
     * configurable, so the port alone does not prove we are on the paper account).
     */
@@ -297,11 +328,22 @@ object IBSocketClientCats:
       openOrdersLock <- Resource.eval(Mutex[F])
       positionsLock <- Resource.eval(Mutex[F])
       accountUpdatesLock <- Resource.eval(Mutex[F])
+      sessionAccounts <- Resource.eval(Deferred[F, String])
       client = new IBSocketClientCats[F](
-        socket, settings.optionalCapabilities, openOrdersLock, positionsLock, accountUpdatesLock
+        socket,
+        settings.optionalCapabilities,
+        openOrdersLock,
+        positionsLock,
+        accountUpdatesLock,
+        port,
+        settings.liveTrading,
+        sessionAccounts
       )
       _ <- Resource.make(client.eConnect(settings.clientId))(_ => client.eDisconnect)
       _ <- Resource.eval(
-        client.managedAccounts.timeout(10.seconds).flatMap(checkAccounts(_, settings.liveTrading).liftTo[F])
+        client.managedAccounts
+          .timeout(10.seconds)
+          .flatTap(sessionAccounts.complete)
+          .flatMap(checkAccounts(_, settings.liveTrading).liftTo[F])
       )
     yield client
