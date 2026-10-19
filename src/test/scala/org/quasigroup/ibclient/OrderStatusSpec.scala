@@ -61,13 +61,14 @@ object OrderStatusSpec extends SimpleIOSuite:
     }
   }
 
-  pureTest("an order is done when cancelled or completely filled") {
+  pureTest("an order is done when cancelled, completely filled or inactive (but not while locating shares)") {
     expect(Orders.isDone(status(7, Order.Status.Cancelled, 0, 100))) and
       expect(Orders.isDone(status(7, Order.Status.ApiCancelled, 0, 100))) and
       expect(Orders.isDone(status(7, Order.Status.Filled, 100, 0))) and
       expect(!Orders.isDone(status(7, Order.Status.Filled, 40, 60))) and
       expect(!Orders.isDone(status(7, Order.Status.Submitted, 40, 60))) and
-      expect(!Orders.isDone(status(7, Order.Status.Inactive, 0, 100)))
+      expect(Orders.isDone(status(7, Order.Status.Inactive, 0, 100))) and
+      expect(!Orders.isDone(status(7, Order.Status.Inactive, 0, 100).copy(whyHeld = "locate")))
   }
 
   private val fill = List(
@@ -118,4 +119,40 @@ object OrderStatusSpec extends SimpleIOSuite:
       closed <- Stream(fill(0), ConnectionClosed).covary[IO].through(Orders.statusesOf(7)).compile.toList.attempt
     yield expect.same(Left(Orders.StatusConnectionLost("[1100] Connectivity lost")), lost) and
       expect.same(Left(Orders.StatusConnectionLost("TWS closed the connection")), closed)
+  }
+
+  private val statusFrame = frame("3", "7", "Submitted", "0", "100", "0", "12", "0", "0", "10", "", "0")
+
+  test("the connection's message stream ends with ConnectionClosed when the socket ends") {
+    IBSocketClientCats.incoming[IO](Stream.emits(statusFrame)).compile.toList.map(msgs =>
+      expect.same(List(Order.Status.Submitted), msgs.collect { case s: OrderStatusMsg => s.status }) and
+        expect.same(Some(ConnectionClosed), msgs.lastOption)
+    )
+  }
+
+  test("the connection's message stream ends with ConnectionClosed when reading the socket fails") {
+    val reads = Stream.emits(statusFrame) ++ Stream.raiseError[IO](new java.io.IOException("connection reset"))
+    IBSocketClientCats.incoming[IO](reads).compile.toList.map(msgs =>
+      expect.same(2, msgs.size) and expect.same(Some(ConnectionClosed), msgs.lastOption)
+    )
+  }
+
+  test("following an order fails when the socket ends, instead of waiting forever") {
+    IBSocketClientCats
+      .incoming[IO](Stream.emits(statusFrame))
+      .through(Orders.statusesOf(7))
+      .compile
+      .toList
+      .attempt
+      .map(result => expect.same(Left(Orders.StatusConnectionLost("TWS closed the connection")), result))
+  }
+
+  test("the open orders stream fails when the connection closes before openOrderEnd") {
+    Stream(ConnectionClosed)
+      .covary[IO]
+      .through(Orders.openOrders)
+      .compile
+      .toList
+      .attempt
+      .map(result => expect.same(Left(Orders.StatusConnectionLost("TWS closed the connection")), result))
   }

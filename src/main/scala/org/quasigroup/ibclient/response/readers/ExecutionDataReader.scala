@@ -31,7 +31,7 @@ object ExecutionDataReader {
       side <- read[String]
       shares <- read[Decimal]
       exePrice <- read[Double]
-      permId <- if version >= 2 then read[Int] else readNothing(-1)
+      permId <- if version >= 2 then read[Long] else readNothing(-1L)
       clientId <- if version >= 3 then read[Int] else readNothing(-1)
       liquidation <- if version >= 4 then read[Int] else readNothing(0)
       cumQty <- if version >= 6 then read[Decimal] else readNothing(Decimal.INVALID)

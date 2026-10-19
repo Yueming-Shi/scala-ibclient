@@ -99,7 +99,12 @@ submitted, partly filled, filled, cancelled. The program can follow these update
 - `orderStatuses` gives the updates of every order this program sees; `orderStatus(orderId)` follows one order.
 - Each update says the order's state, how much is filled and how much remains, the average and last fill price,
   the order's permanent id and, if TWS is holding the order, why.
-- Following one order finishes by itself when the order is cancelled or completely filled.
+- Following one order finishes by itself when the order is cancelled, completely filled, or made inactive by IB
+  (for example rejected). An order that is inactive only while IB looks for shares to borrow for a short sale is
+  still followed.
+- TWS does not promise an update for every change: an order that fills immediately may get no status update at
+  all. So following one order should have a time limit, and to be sure an order filled, also follow its
+  executions (feature 5).
 - Listening starts as soon as the stream is opened, so open it before placing the order to see every update.
   TWS may send the same update twice; both are passed on.
 - Following orders never silently stops: if an update cannot be read, or the connection to TWS or IB is lost, the
@@ -107,10 +112,14 @@ submitted, partly filled, filled, cancelled. The program can follow these update
 - No message is sent to TWS: these updates arrive by themselves (also in reply to an open-orders request).
 
 **Fixes made along the way:** the order's permanent id can be larger than a regular whole number allows and is
-now kept as a long number.
+now kept as a long number, the same way in order status, open order and execution messages. When the
+connection to TWS ends without a goodbye message (socket closed or failed), every listener is now told, so
+order status and open order streams fail instead of waiting forever.
 
 **How we check it (unit tests, no TWS needed):** canned order status messages are decoded for recent servers
 (no version field, with the market cap price) and for an older one (with a version field), including fractional
 quantities, very large permanent ids, an unknown state and dropped empty fields at the end; following one order
-ends at "cancelled" or "filled with nothing remaining" and ignores other orders; unreadable updates and connection
-loss make the stream fail; nothing is sent to TWS.
+ends at "cancelled", "filled with nothing remaining" or "inactive" (but not "inactive" while locating shares) and
+ignores other orders; unreadable updates and connection loss make the stream fail; a socket that ends or fails
+is turned into "connection closed" and makes the order status and open orders streams fail; large permanent ids
+decode in open orders too; nothing is sent to TWS.

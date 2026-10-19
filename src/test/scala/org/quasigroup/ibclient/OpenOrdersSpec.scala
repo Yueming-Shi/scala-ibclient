@@ -114,6 +114,14 @@ object OpenOrdersSpec extends SimpleIOSuite:
     }
   }
 
+  test("openOrder decodes a permanent id larger than Int") {
+    val fields = openOrderFields(176).map(f => if f == "1234567890" then "3000000001" else f)
+    decodeWith(176, fields).map {
+      case List(o: OpenOrder) => expect.same(3000000001L, o.order.permId)
+      case other              => failure(s"unexpected $other")
+    }
+  }
+
   test("openOrderEnd decodes") {
     decodeOne("53", "1").map(msg => expect.same(OpenOrderEnd, msg))
   }

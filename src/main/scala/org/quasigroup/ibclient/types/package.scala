@@ -432,7 +432,7 @@ final case class Execution(
     side: String = "",
     shares: Decimal = Decimal.ZERO,
     price: Double = 0.0,
-    permId: Int = -1,
+    permId: Long = -1,
     liquidation: Int = 0,
     cumQty: Decimal = Decimal.ZERO,
     avgPrice: Double = 0.0,
@@ -567,7 +567,7 @@ final case class Order(
     // ids
     clientId: Int = -1,
     orderId: Int = -1,
-    permId: Int = -1,
+    permId: Long = -1,
     parentId: Int = -1,
     // primary attributes
     action: Action = Action.BUY,

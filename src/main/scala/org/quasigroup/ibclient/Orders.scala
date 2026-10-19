@@ -22,17 +22,20 @@ object Orders:
       case order: OpenOrder                                                    => Stream.emit(order)
       case Unreadable(fields, reason) if fields.headOption.contains(OpenOrderMsgId) =>
         Stream.raiseError[F](UnreadableOrder(fields, reason))
-      case _ => Stream.empty
+      case ConnectionClosed => Stream.raiseError[F](StatusConnectionLost("TWS closed the connection"))
+      case _                => Stream.empty
     }
 
-  final case class StatusConnectionLost(reason: String)
-      extends RuntimeException(s"order status updates stopped: $reason")
+  final case class StatusConnectionLost(reason: String) extends RuntimeException(s"order updates stopped: $reason")
 
-  /** An order is done when it is cancelled or completely filled; TWS sends no further status for it. */
+  /** An order is done when it is cancelled, completely filled or inactive (rejected or cancelled by the system);
+    * TWS sends no further status for it. An order held inactive while IB locates shares to short is not done.
+    */
   def isDone(status: OrderStatusMsg): Boolean =
     status.status match
       case Order.Status.Cancelled | Order.Status.ApiCancelled => true
       case Order.Status.Filled                                => status.remaining.isZero
+      case Order.Status.Inactive                              => !status.whyHeld.toLowerCase.contains("locate")
       case _                                                  => false
 
   /** Keeps the order status updates. Fails if one could not be read and when the connection to TWS or IB is lost, so
@@ -49,6 +52,6 @@ object Orders:
       case _                => Stream.empty
     }
 
-  /** The status updates of one order, completing with its final one (cancelled or completely filled). */
+  /** The status updates of one order, completing with its final one (see [[isDone]]). */
   def statusesOf[F[_]: RaiseThrowable](orderId: Int): Pipe[F, ResponseMsg, OrderStatusMsg] =
     _.through(statuses).filter(_.orderId == orderId).takeThrough(!isDone(_))

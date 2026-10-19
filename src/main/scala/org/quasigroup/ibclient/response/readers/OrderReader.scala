@@ -439,7 +439,7 @@ object OrderReader {
       origin <- read[Int]
       orderRef <- read[String]
       clientId <- if version >= 3 then read[Int] else readNothing(-1)
-      permId <- if version >= 4 then read[Int] else readNothing(-1)
+      permId <- if version >= 4 then read[Long] else readNothing(-1L)
       outsideRth <- if version >= 4 then read[Boolean] else readNothing(false)
       hidden <- if version >= 4 then read[Int].map(_ == 1) else readNothing(false)
       discretionaryAmt <- if version >= 4 then read[Double] else readNothing(Double.MaxValue)
@@ -629,7 +629,7 @@ object OrderReader {
       openClose <- read[String]
       origin <- read[Int]
       orderRef <- read[String]
-      permId <- if version >= 4 then read[Int] else readNothing(-1)
+      permId <- if version >= 4 then read[Long] else readNothing(-1L)
       outsideRth <- if version >= 4 then read[Boolean] else readNothing(false)
       hidden <- if version >= 4 then read[Int].map(_ == 1) else readNothing(false)
       discretionaryAmt <- if version >= 4 then read[Double] else readNothing(Double.MaxValue)

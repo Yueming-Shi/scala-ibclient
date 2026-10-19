@@ -101,12 +101,17 @@ trait IBClient[F[_]: Async]:
     * after an order is placed, modified or cancelled and in reply to open-orders requests. Updates are listened for as
     * soon as the resource is open, so open it before placing an order to see all of them. The stream never ends by
     * itself; it fails if an update cannot be read or the connection is lost. TWS may repeat the same status.
+    *
+    * TWS does not promise an update for every change: an order that fills at once may get no status update at all.
+    * To be sure an order filled, also follow its executions.
     */
   def orderStatuses: Resource[F, Stream[F, OrderStatusMsg]] =
     subscribe.map(_.through(Orders.statuses))
 
-  /** The status updates of one order, as a stream that completes with its final one (cancelled or completely filled).
-    * Like [[orderStatuses]], it listens from the moment the resource is opened.
+  /** The status updates of one order, as a stream that completes with its final one: cancelled, completely filled or
+    * inactive (rejected), but not inactive while IB locates shares to short. Like [[orderStatuses]], it listens from
+    * the moment the resource is opened. Because TWS may skip updates (see [[orderStatuses]]), put a timeout on it or
+    * also follow the order's executions.
     */
   def orderStatus(orderId: Int): Resource[F, Stream[F, OrderStatusMsg]] =
     subscribe.map(_.through(Orders.statusesOf(orderId)))

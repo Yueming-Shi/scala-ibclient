@@ -69,15 +69,7 @@ class IBSocketClientCats[F[_]: Async: Console](
           .start
       pullFiber <- Stream
         .fromQueueUnterminated(msgQueue)
-        .concurrently(
-          socket.reads
-            .through(frames.toPipeByte)
-            .evalTap(strs => Console[F].println(strs.mkString("[", ",", "]")))
-            .through(decodeOrReport)
-            .evalTap(Console[F].println)
-            .takeThrough(_ != ConnectionClosed)
-            .evalTap(msgQueue.offer)
-        )
+        .concurrently(incoming(socket.reads).evalTap(Console[F].println).evalTap(msgQueue.offer))
         .through(msgTopic.publish)
         .compile
         .drain
@@ -200,6 +192,18 @@ object IBSocketClientCats:
             )
           )
     yield rawMessage
+
+  /** The messages read from TWS, always ending with [[ResponseMsg.ConnectionClosed]]: when TWS sends it, when the
+    * socket reaches its end, or when reading fails, so that subscribers never wait on a dead connection.
+    */
+  def incoming[F[_]: RaiseThrowable: Applicative: Console](reads: Stream[F, Byte])(using
+      IBClient.ServerVersion
+  ): Stream[F, ResponseMsg] =
+    (reads.through(frames.toPipeByte).through(decodeOrReport) ++ Stream.emit(ConnectionClosed))
+      .handleErrorWith(e =>
+        Stream.exec(Console[F].errorln(s"TWS connection failed: $e")) ++ Stream.emit(ConnectionClosed)
+      )
+      .takeThrough(_ != ConnectionClosed)
 
   /** Decodes messages. One that cannot be read does not stop the connection: it is reported on stderr and passed on
     * as [[ResponseMsg.Unreadable]], so streams waiting for that kind of message can fail rather than miss it.
