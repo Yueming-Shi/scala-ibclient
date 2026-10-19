@@ -244,6 +244,25 @@ trait IBClient[F[_]: Async]:
   def cancelAccountSummary(reqId: Int): F[Unit] =
     requestOnly[CancelAccountSummary](CancelAccountSummary(reqId = reqId))
 
+  /** The daily, unrealized and realized profit and loss of `account` (optionally of one model), updated by TWS about
+    * once a second while it changes. The stream never ends by itself; when it is stopped, the request is cancelled.
+    * Fails on a TWS error for `reqId`, on an unreadable update and when the connection is lost.
+    */
+  def reqPnL(reqId: Int, account: String, modelCode: String = ""): Stream[F, PnL] =
+    requestThrough[ReqPnL, PnL](ReqPnL(reqId = reqId, account = account, modelCode = modelCode))(
+      ProfitAndLoss.pnl(reqId)
+    ).onFinalize(cancelPnL(reqId))
+
+  def cancelPnL(reqId: Int): F[Unit] = requestOnly[CancelPnL](CancelPnL(reqId = reqId))
+
+  /** Like [[reqPnL]], for the position in instrument `conId` of `account`: also its size and market value. */
+  def reqPnLSingle(reqId: Int, account: String, conId: Int, modelCode: String = ""): Stream[F, PnLSingle] =
+    requestThrough[ReqPnLSingle, PnLSingle](
+      ReqPnLSingle(reqId = reqId, account = account, modelCode = modelCode, conId = conId)
+    )(ProfitAndLoss.pnlSingle(reqId)).onFinalize(cancelPnLSingle(reqId))
+
+  def cancelPnLSingle(reqId: Int): F[Unit] = requestOnly[CancelPnLSingle](CancelPnLSingle(reqId = reqId))
+
   def reqManagedAccts: F[ManagedAccounts] =
     requestSingleResponse[ReqManagedAccts, ManagedAccounts](ReqManagedAccts())
 

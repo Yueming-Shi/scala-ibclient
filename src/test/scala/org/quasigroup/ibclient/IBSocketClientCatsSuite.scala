@@ -237,3 +237,14 @@ object IBSocketClientCatsSuite extends IOSuite with ContractSpec with OrderSpec:
     yield expect(lines.nonEmpty) and expect(lines.forall(_.reqId == reqId)) and expect(netLiquidation.nonEmpty) and
       expect(lines.forall(l => IBSocketClientCats.isPaperAccount(l.account)))
   }
+
+  integrationTest("read the paper account's daily profit and loss (read only)") { case (ibclient, random) =>
+    for
+      account <- firstAccount(ibclient)
+      reqId <- random.nextIntBounded(1000000)
+      first <- ibclient.reqPnL(reqId, account).take(1).compile.lastOrError.timeout(30.seconds)
+      known = (first.dailyPnL, first.unrealizedPnL, first.realizedPnL).toList.map(ProfitAndLoss.known(_).isDefined)
+      // only which values TWS knows is printed, not the amounts
+      _ <- IO.println(s"[integration] PnL update received; known daily/unrealized/realized: ${known.mkString("/")}")
+    yield expect.same(reqId, first.reqId)
+  }
