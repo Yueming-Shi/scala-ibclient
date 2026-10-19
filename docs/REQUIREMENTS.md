@@ -71,6 +71,8 @@ fails on errors, and cancels the subscription when stopped. One integration test
 
 **How we check it (unit tests, no TWS needed):** the request message is compared with the TWS API format (msg 9, version 8); the stream keeps only its own request's details up to its own end, and fails on its own errors. An ES front-month probe (paper TWS) is used when checking market data for the sample strategy.
 
+**Fixes made along the way:** on server 164+ the contract-details reply has no message version and sends the multiplier as text after minTick (the old unused mdSizeMultiplier int is gone); the decoder was updated so ES front-month lookup works.
+
 ## 3. Open orders
 
 **Why:** to see which orders are still working (not yet filled or cancelled) on the account.
