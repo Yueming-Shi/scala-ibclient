@@ -31,7 +31,8 @@ object OpenOrdersSpec extends SimpleIOSuite:
       List("0", "", "-1", "0") ++ // shortSaleSlot, designatedLocation, exemptCode, auctionStrategy
       List("", "", "", "", "") ++ // startingPrice, stockRefPrice, delta, stockRangeLower, stockRangeUpper
       List("", "0", "0", "0", "", "3", "0", "0", "", "0", "0") ++ // displaySize ... parentId, triggerMethod
-      List("", "0", "", "", "0", "0") ++ // volatility, volType, dnOrderType, dnAuxPrice, continuousUpdate, refPriceType
+      // None is non-empty, so TWS also sends the delta-neutral attribute fields (IB StringIsEmpty rule).
+      List("", "0", "None", "", "0", "", "", "", "?", "0", "0", "", "0", "0") ++ // vol + DN attrs + cont + ref
       List("", "", "", "") ++ // trailStopPrice, trailingPercent, basisPoints, basisPointsType
       List("", "0", "0", "0") ++ // comboLegsDescrip, #comboLegs, #orderComboLegs, #smartComboRoutingParams
       List("", "", "") ++ // scaleInitLevelSize, scaleSubsLevelSize, scalePriceIncrement
@@ -119,6 +120,21 @@ object OpenOrdersSpec extends SimpleIOSuite:
     decodeWith(176, fields).map {
       case List(o: OpenOrder) => expect.same(3000000001L, o.order.permId)
       case other              => failure(s"unexpected $other")
+    }
+  }
+
+  test("openOrder treats TWS '?' in unset numeric fields like empty (live paper basisPoints)") {
+    // Live paper openOrder for 1 SPY LMT @$1 can send "?" for basisPoints (contract right "?" is a string).
+    val base = openOrderFields(177)
+    // Helper layout: continuousUpdate/refPriceType ("0","0") then trailStop, trailingPercent, basisPoints, basisPointsType.
+    val i = base.indices
+      .find(j => base.slice(j, j + 6) == List("0", "0", "", "", "", ""))
+      .getOrElse(sys.error("trail/basisPoints block not found in openOrderFields"))
+    val withQ = base.updated(i + 4, "?")
+    decodeWith(177, withQ).map {
+      case List(o: OpenOrder) =>
+        checkBasics(o) and expect(o.order.basisPoints.exists(_.value == Double.MaxValue))
+      case other => failure(s"unexpected $other")
     }
   }
 

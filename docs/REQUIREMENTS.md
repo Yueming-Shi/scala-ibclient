@@ -324,7 +324,7 @@ on the live account would spend real money, so this feature refuses anything but
 limit order that has no volatility or hedge fields; it also skipped the "randomize size / price" flags. Cancel
 on recent servers now sends the manual-cancel-time field. After review: concurrent `nextValidOrderId` calls wait
 for each other so they cannot share one id. Against paper TWS, placeOrder failed with error 135 ("Can't find order
-with id = -1") because `Order.parentId` defaulted to -1; IB expects 0 when there is no parent.
+with id = -1") because `Order.parentId` defaulted to -1; IB expects 0 when there is no parent. Live paper openOrder replies can also send "?" in optional numeric fields such as basisPoints; `readDoubleMax` / `readIntMax` treat "?" like an empty unset value. When TWS sends deltaNeutralOrderType as the literal None, the following delta-neutral attribute fields are still present and must be read (same as IB non-empty string check).
 
 **How we check it (unit tests, no TWS needed):** the paper-session guard accepts only port 7497 with paper
 accounts and no live opt-in; cancelOrder encodes with and without the manual-cancel-time field; reqGlobalCancel

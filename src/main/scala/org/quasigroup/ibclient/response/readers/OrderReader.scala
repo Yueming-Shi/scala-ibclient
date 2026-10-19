@@ -353,16 +353,23 @@ object OrderReader {
         volatility <- readDoubleMax
         volatilityType <- read[VolatilityType]
         version11 = (version == 11)
+        // TWS may send literal "None"; IB reads DN attrs when the raw string is non-empty.
+        deltaNeutralOrderTypeStr <-
+          if version11 then read[Int].map(value => if value == 0 then "" else "MKT")
+          else read[String]
         deltaNeutralOrderType <-
-          if version11 then read[Int].map(value => if value == 0 then Order.Type.None else Order.Type.MKT)
-          else read[Order.Type]
+          readNothing(
+            if deltaNeutralOrderTypeStr.isEmpty || deltaNeutralOrderTypeStr == "None" then Order.Type.None
+            else Order.Type.values.find(_.apiString == deltaNeutralOrderTypeStr).getOrElse(Order.Type.None)
+          )
         deltaNeutralAuxPrice <- if version11 then readNothing(Double.MaxValue) else readDoubleMax
-        v27Newer = (version >= 27 && deltaNeutralOrderType != Order.Type.None)
+        hasDeltaNeutralOrderType = deltaNeutralOrderTypeStr.nonEmpty
+        v27Newer = (version >= 27 && hasDeltaNeutralOrderType)
         deltaNeutralConId <- if v27Newer then read[Int] else readNothing(-1)
         deltaNeutralSettlingFirm <- if v27Newer && readOpenOrderAttribs then read[String] else readNothing("")
         deltaNeutralClearingAccount <- if v27Newer && readOpenOrderAttribs then read[String] else readNothing("")
         deltaNeutralClearingIntent <- if v27Newer && readOpenOrderAttribs then read[String] else readNothing("")
-        v31Newer = (version >= 31 && deltaNeutralOrderType != Order.Type.None)
+        v31Newer = (version >= 31 && hasDeltaNeutralOrderType)
         deltaNeutralOpenClose <- if v31Newer && readOpenOrderAttribs then read[String] else readNothing("")
         deltaNeutralShortSale <- if v31Newer then read[Boolean] else readNothing(false)
         deltaNeutralShortSaleSlot <- if v31Newer then read[Int] else readNothing(-1)
