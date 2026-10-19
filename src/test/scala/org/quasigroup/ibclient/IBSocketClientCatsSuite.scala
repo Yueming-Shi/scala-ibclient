@@ -224,3 +224,16 @@ object IBSocketClientCatsSuite extends IOSuite with ContractSpec with OrderSpec:
     yield expect.same(account, snap.account) and expect(snap.values.nonEmpty) and expect(netLiquidation.nonEmpty) and
       expect(snap.portfolio.forall(_.accountName == account))
   }
+
+  integrationTest("read the paper account summary (read only)") { case (ibclient, random) =>
+    for
+      reqId <- random.nextIntBounded(1000000)
+      lines <- ibclient.reqAccountSummary(reqId).compile.toList.timeout(30.seconds)
+      tags = lines.map(_.tag).distinct
+      netLiquidation = lines.filter(_.tag == "NetLiquidation").map(l => s"${l.value} ${l.currency}")
+      // only counts, the tag names and the net liquidation value are printed, not the account's other details
+      _ <- IO.println(s"[integration] account summary: ${lines.size} lines, ${lines.map(_.account).distinct.size} " +
+        s"account(s), tags ${tags.mkString(",")}, NetLiquidation ${netLiquidation.mkString(", ")}")
+    yield expect(lines.nonEmpty) and expect(lines.forall(_.reqId == reqId)) and expect(netLiquidation.nonEmpty) and
+      expect(lines.forall(l => IBSocketClientCats.isPaperAccount(l.account)))
+  }

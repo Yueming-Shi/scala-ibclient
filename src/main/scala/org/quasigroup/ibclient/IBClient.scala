@@ -226,6 +226,24 @@ trait IBClient[F[_]: Async]:
   def accountSnapshot(account: String): F[Portfolio.AccountSnapshot] =
     reqAccountUpdates(account).through(Portfolio.snapshot(account)).compile.lastOrError
 
+  /** A summary of the accounts in `group` ("All" for every account of this login): one line per account and tag
+    * (e.g. NetLiquidation), with its value and currency, as a stream that completes when TWS has sent them all
+    * (accountSummaryEnd). The request is cancelled when the stream ends or is stopped, as TWS would otherwise resend
+    * the summary every 3 minutes. Fails on a TWS error for `reqId` (e.g. more than 2 summaries open at a time), on an
+    * unreadable summary line and when the connection is lost.
+    */
+  def reqAccountSummary(
+      reqId: Int,
+      group: String = "All",
+      tags: String = Portfolio.AccountSummaryTags.All
+  ): Stream[F, AccountSummary] =
+    requestThrough[ReqAccountSummary, AccountSummary](ReqAccountSummary(reqId = reqId, group = group, tags = tags))(
+      Portfolio.accountSummary(reqId)
+    ).onFinalize(cancelAccountSummary(reqId))
+
+  def cancelAccountSummary(reqId: Int): F[Unit] =
+    requestOnly[CancelAccountSummary](CancelAccountSummary(reqId = reqId))
+
   def reqManagedAccts: F[ManagedAccounts] =
     requestSingleResponse[ReqManagedAccts, ManagedAccounts](ReqManagedAccts())
 

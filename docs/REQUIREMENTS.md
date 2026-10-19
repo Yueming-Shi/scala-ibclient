@@ -242,3 +242,27 @@ account name from that marker when the account code is empty; the stream fails o
 from before it unsubscribes and keeps the lock until the end arrives or the wait is over (another account's end
 does not count). An integration test (read only, skipped without the paper TWS on port 7497) takes a snapshot of the paper
 account and prints only counts and the net liquidation value.
+
+### 6c. Account summary
+
+**What it does:** the program can ask for a short summary of its accounts, such as net liquidation value, cash,
+buying power and margin, and get the answer as a list that ends by itself.
+
+- `reqAccountSummary(requestId, group, tags)` asks for the summary of the accounts in a group ("All", the
+  default, means every account of this login) and for the chosen tags (by default every tag the API knows, for
+  example `NetLiquidation`, `TotalCashValue`, `BuyingPower`, `AvailableFunds`). Each line says the account, the
+  tag, its value and its currency.
+- The list ends when TWS says the summary is complete ("account summary end"). TWS would resend the summary every
+  3 minutes, so when the list ends, or when the program stops it early, the library cancels the request
+  (`cancelAccountSummary`).
+- The replies carry the request number, so several summaries can run side by side (TWS allows at most two at a
+  time and reports an error for a third).
+- It fails with an error if TWS reports an error for the request, if one of its lines cannot be read, or if the
+  connection is lost. Warnings and errors of other requests do not affect it.
+
+**How we check it (unit tests, no TWS needed):** the request and cancel messages are compared with the TWS API
+format; the default tag list holds the official API's 29 tags; canned summary line and "account summary end"
+messages are decoded; the stream keeps only its own lines up to its own end, cancels at the end and when stopped
+early, and fails on its own errors and unreadable lines (not on warnings or other requests') and on connection
+loss. An integration test (read only, skipped without the paper TWS on port 7497) reads the paper account summary
+and prints only counts, the tag names and the net liquidation value.

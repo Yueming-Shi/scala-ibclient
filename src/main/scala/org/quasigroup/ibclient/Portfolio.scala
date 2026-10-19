@@ -15,6 +15,7 @@ object Portfolio:
   private val PositionMsgId = "61" // incoming TWS message id of position
   /** Incoming TWS message ids of account updates: account value, portfolio value, update time, download end. */
   private val AccountUpdateMsgIds = Set("6", "7", "8", "54")
+  private val AccountSummaryMsgId = "63" // incoming TWS message id of accountSummary
 
   final case class Unreadable(what: String, fields: List[String], reason: String)
       extends RuntimeException(s"$what: unreadable message from TWS ($reason): ${fields.mkString("[", ",", "]")}")
@@ -124,3 +125,35 @@ object Portfolio:
       case _: AccountDownloadEnd => false
       case _                     => true
     }.fold(AccountSnapshot.empty(account))(_.add(_))
+
+  /** Account summary tag names, as in the official API's AccountSummaryTags. */
+  object AccountSummaryTags:
+    val NetLiquidation = "NetLiquidation"
+    val TotalCashValue = "TotalCashValue"
+    val BuyingPower = "BuyingPower"
+    val AvailableFunds = "AvailableFunds"
+
+    /** Every tag. "$LEDGER" / "$LEDGER:ALL" / "$LEDGER:<currency>" can be added to get values per currency. */
+    val All: String = List(
+      "AccountType", NetLiquidation, TotalCashValue, "SettledCash", "AccruedCash", BuyingPower, "EquityWithLoanValue",
+      "PreviousEquityWithLoanValue", "GrossPositionValue", "ReqTEquity", "ReqTMargin", "SMA", "InitMarginReq",
+      "MaintMarginReq", AvailableFunds, "ExcessLiquidity", "Cushion", "FullInitMarginReq", "FullMaintMarginReq",
+      "FullAvailableFunds", "FullExcessLiquidity", "LookAheadNextChange", "LookAheadInitMarginReq",
+      "LookAheadMaintMarginReq", "LookAheadAvailableFunds", "LookAheadExcessLiquidity", "HighestSeverity",
+      "DayTradesRemaining", "Leverage"
+    ).mkString(",")
+
+  /** Keeps the account summary lines of request `reqId` until TWS says the summary is complete (accountSummaryEnd).
+    * Fails on a TWS error for the request, on an unreadable summary line of this request and when the connection is
+    * lost.
+    */
+  def accountSummary[F[_]: RaiseThrowable](reqId: Int): Pipe[F, ResponseMsg, AccountSummary] =
+    _.takeWhile(_ != AccountSummaryEnd(reqId)).flatMap {
+      case a: AccountSummary if a.reqId == reqId => Stream.emit(a)
+      case ErrorDetail(`reqId`, code, text, _) if !MarketData.isWarning(code) =>
+        Stream.raiseError[F](RequestFailed(s"account summary $reqId", code, text))
+      case ResponseMsg.Unreadable(fields, reason, _)
+          if fields.headOption.contains(AccountSummaryMsgId) && fields.lift(2).contains(reqId.toString) =>
+        Stream.raiseError[F](Unreadable(s"account summary $reqId", fields, reason))
+      case msg => failOnConnectionLoss[F](s"account summary $reqId")(msg)
+    }
