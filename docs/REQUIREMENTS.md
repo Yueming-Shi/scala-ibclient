@@ -123,3 +123,32 @@ ends at "cancelled", "filled with nothing remaining" or "inactive" (but not "ina
 ignores other orders; unreadable updates and connection loss make the stream fail; a socket that ends or fails
 is turned into "connection closed" and makes the order status and open orders streams fail; large permanent ids
 decode in open orders too; nothing is sent to TWS.
+
+## 5. Executions (fills)
+
+**What it does:** the program can ask TWS which of today's orders were filled ("executions"), optionally
+narrowed down by a filter, and get the answer as a list that ends by itself.
+
+- `reqExecutions(requestId, filter)` asks for the executions. The filter can narrow by client id, account, time
+  (only executions after it), symbol, kind of security, exchange and side (buy/sell); an empty filter means all.
+- Each execution says which order and instrument it belongs to, the execution id, time, account, exchange,
+  side, quantity and price, the order's permanent id, the running total and average price, and whether the fill
+  added or removed liquidity.
+- The commission IB charged for an execution comes as a separate "commission report" (amount, currency,
+  realized profit/loss) and is passed on right after it when TWS has it. A commission report that TWS only sends
+  after the list has ended is not included.
+- The list ends when TWS says it is complete ("executions end"). It fails with an error if TWS reports an error
+  for the request, if an execution or commission report cannot be read, or if the connection is lost.
+- This only reads information; it never places or changes an order.
+
+**Fixes made along the way:** the execution message was read with a "version" field that recent TWS versions no
+longer send and with a "market name" field that TWS never sends there, which shifted every field; the kind of
+security in the filter was sent as a number instead of its name (an empty kind is now sent as an empty field);
+an unknown liquidity value no longer crashes the decoder.
+
+**How we check it (unit tests, no TWS needed):** the request is compared with the TWS API format with and without
+a filter; canned execution messages are decoded for a recent server (no version field, with liquidity) and an
+older one (with a version field); "executions end" and commission reports decode; the stream keeps only its own
+executions and their commission reports, ends at "executions end", and fails on a TWS error, an unreadable
+execution or commission report, and connection loss. An integration test (read only, skipped without the paper
+TWS on port 7497) lists today's executions.

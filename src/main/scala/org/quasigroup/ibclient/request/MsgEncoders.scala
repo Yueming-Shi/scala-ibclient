@@ -88,6 +88,10 @@ object MsgEncoders:
     def apply(a: PlaceOrder)(using serverVersion: IBClient.ServerVersion): mutable.Buffer[Byte] =
       PlaceOrderWriter(a)(using serverVersion).runS(mutable.Buffer.empty).value
 
+  inline given MsgEncoder[ReqExecutions] with
+    def apply(a: ReqExecutions)(using serverVersion: IBClient.ServerVersion): mutable.Buffer[Byte] =
+      ReqExecutionsWriter(a).runS(mutable.Buffer.empty).value
+
   inline given genericMsgEncoder[T: Encoder]: MsgEncoder[T] = new MsgEncoder[T] {
     override def apply(a: T)(using serverVersion: IBClient.ServerVersion): mutable.Buffer[Byte] = summon[Encoder[T]](a)
   }

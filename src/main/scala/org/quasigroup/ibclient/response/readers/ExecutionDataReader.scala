@@ -9,7 +9,8 @@ import org.quasigroup.ibclient.response.ResponseMsg.ExecDetails
 object ExecutionDataReader {
   def create(using serverVersion: IBClient.ServerVersion): DecoderState[ExecDetails] =
     for
-      version <- read[Int]
+      version <- // no version field since server 136: everything below is then sent
+        if serverVersion >= IBClient.MIN_SERVER_VER_LAST_LIQUIDITY then readNothing(Int.MaxValue) else read[Int]
       reqId <- if version >= 7 then read[Int] else readNothing(-1)
       orderId <- read[Int]
       conid <- if version >= 5 then read[Int] else readNothing(-1)
@@ -22,7 +23,6 @@ object ExecutionDataReader {
       exchange <- read[String]
       currency <- read[String]
       localSymbol <- read[String]
-      marketName <- read[String]
       tradingClass <- if version >= 10 then read[String] else readNothing("")
       execId <- read[String]
       time <- read[String]
@@ -39,8 +39,10 @@ object ExecutionDataReader {
       orderRef <- if version >= 8 then read[String] else readNothing("")
       evRule <- if version >= 9 then read[String] else readNothing("")
       evMultiplier <- if version >= 9 then read[Double] else readNothing(Double.MaxValue)
-      modelCode <- read[String]
-      lastLiquidity <- read[Liquidities]
+      modelCode <- if serverVersion >= IBClient.MIN_SERVER_VER_MODELS_SUPPORT then read[String] else readNothing("")
+      lastLiquidity <-
+        if serverVersion >= IBClient.MIN_SERVER_VER_LAST_LIQUIDITY then read[Liquidities]
+        else readNothing(Liquidities.None)
     yield {
       val contract = Contract(
         conId = conid,

@@ -51,7 +51,8 @@ object TypesCodec:
       )
     )
 
-  inline given Decoder[Liquidities] = summon[Decoder[Int]].map(Liquidities.fromOrdinal)
+  inline given Decoder[Liquidities] =
+    summon[Decoder[Int]].map(i => Liquidities.values.lift(i).getOrElse(Liquidities.None))
 
   inline given Encoder[MktDataType] =
     summon[Encoder[Int]].contramap(_.ordinal)
@@ -146,8 +147,9 @@ object TypesCodec:
       else SecType.values.find(_.toString == str.replace('+', '_')).toRight(new Exception(s"unknown sec type: $str"))
     )
 
+  /** No security type is sent as an empty field (as the TWS API does), not as "None". */
   inline given Encoder[SecType] =
-    summon[Encoder[String]].contramap(_.toString.replace('_', '+'))
+    summon[Encoder[String]].contramap(t => if t == SecType.None then "" else t.toString.replace('_', '+'))
 
   inline given Decoder[SecIdType] =
     summon[Decoder[String]].map(SecIdType.valueOf)

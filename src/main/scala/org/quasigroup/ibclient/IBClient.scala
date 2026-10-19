@@ -116,6 +116,18 @@ trait IBClient[F[_]: Async]:
   def orderStatus(orderId: Int): Resource[F, Stream[F, OrderStatusMsg]] =
     subscribe.map(_.through(Orders.statusesOf(orderId)))
 
+  /** The executions (fills) of today that match `filter`, each followed by its commission report when TWS has it, as a
+    * stream that completes when TWS has sent them all. Fails on a TWS error for `reqId`, on an unreadable fill or
+    * commission report and when the connection is lost.
+    *
+    * A commission report that TWS sends only after the end of the reply is not part of the stream. An execution id
+    * ending in a higher number (e.g. ".02" instead of ".01") corrects an earlier one with the same start.
+    */
+  def reqExecutions(reqId: Int, filter: ExecutionFilter = ExecutionFilter()): Stream[F, Executions.Report] =
+    requestThrough[ReqExecutions, Executions.Report](ReqExecutions(reqId = reqId, filter = filter))(
+      Executions.reports(reqId)
+    )
+
   def reqMarketDataType(marketDataType: MktDataType): F[Unit] =
     requestOnly[ReqMarketDataType](ReqMarketDataType(marketDataType = marketDataType))
 

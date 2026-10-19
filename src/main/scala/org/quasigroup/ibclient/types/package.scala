@@ -443,14 +443,17 @@ final case class Execution(
     lastLiquidity: Liquidities = Liquidities.None
 )
 
+/** Which executions to return; every field left at its default means "any". `time` is "yyyyMMdd-HH:mm:ss" (UTC) and
+  * returns the executions after it; `side` is "BUY" or "SELL".
+  */
 final case class ExecutionFilter(
-    clientId: Int,
-    acctCode: String,
-    time: String,
-    symbol: String,
-    secType: SecType,
-    exchange: String,
-    side: String
+    clientId: Int = 0,
+    acctCode: String = "",
+    time: String = "",
+    symbol: String = "",
+    secType: SecType = SecType.None,
+    exchange: String = "",
+    side: String = ""
 )
 
 opaque type ComboContract = Contract

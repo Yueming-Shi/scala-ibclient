@@ -184,3 +184,13 @@ object IBSocketClientCatsSuite extends IOSuite with ContractSpec with OrderSpec:
 //       expect(serverTime.time <= now.getEpochSecond)
 //     }
 //   }
+
+  integrationTest("list today's executions (read only)") { case (ibclient, random) =>
+    for
+      reqId <- random.nextIntBounded(1000000)
+      reports <- ibclient.reqExecutions(reqId).compile.toList.timeout(30.seconds)
+    yield expect(reports.forall {
+      case e: ExecDetails => e.reqId == reqId
+      case _              => true
+    })
+  }
