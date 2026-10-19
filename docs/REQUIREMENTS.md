@@ -310,7 +310,8 @@ on the live account would spend real money, so this feature refuses anything but
   snapshots, status updates (PreSubmitted, Submitted, Filled, Cancelled, ...) and TWS errors for that order (for
   example 202 "Order Canceled"). The stream ends when the order is done (cancelled, completely filled or inactive),
   the same way as feature 4, or on a non-warning TWS error other than 202. Use `nextValidOrderId` to get a free
-  order id from TWS before placing.
+  order id from TWS before placing; on one connection only one id request runs at a time, so two callers cannot
+  receive the same id.
 - `cancelOrder(orderId)` cancels an order this program placed. On recent TWS versions it also sends an optional
   "manual cancel time" (empty by default).
 - `reqGlobalCancel` cancels every open order in TWS, including ones typed in by hand.
@@ -321,12 +322,14 @@ on the live account would spend real money, so this feature refuses anything but
 
 **Fixes made along the way:** the place-order encoder wrote the auxiliary price twice and crashed on an ordinary
 limit order that has no volatility or hedge fields; it also skipped the "randomize size / price" flags. Cancel
-on recent servers now sends the manual-cancel-time field.
+on recent servers now sends the manual-cancel-time field. After review: concurrent `nextValidOrderId` calls wait
+for each other so they cannot share one id.
 
 **How we check it (unit tests, no TWS needed):** the paper-session guard accepts only port 7497 with paper
 accounts and no live opt-in; cancelOrder encodes with and without the manual-cancel-time field; reqGlobalCancel
-and reqIds match the TWS API; a 1-share LMT DAY placeOrder starts with the expected contract and order fields and
-contains no market order; the events stream keeps one order's openOrder / status / error until Cancelled or
-Filled, ignores other orders, and fails on connection loss. An integration test (paper TWS on 7497 only) places
+and reqIds match the TWS API; a 1-share LMT DAY placeOrder starts with the expected contract and order fields
+(no FA profile, randomize flags false, empty manual order time) and contains no market order; the events stream
+keeps one order's openOrder / status / error until Cancelled or Filled, ignores other orders, and fails on
+connection loss; nextValidOrderId requests run one at a time. An integration test (paper TWS on 7497 only) places
 a 1-share SPY LMT BUY far below the market (so it cannot fill), waits for Submitted or PreSubmitted, cancels it,
 checks Cancelled, and cancels again in a finalizer if anything goes wrong. Never a market order, never port 7496.

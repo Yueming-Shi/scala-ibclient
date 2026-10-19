@@ -44,6 +44,7 @@ class IBSocketClientCats[F[_]: Async: Console](
     override val openOrdersLock: Mutex[F],
     override val positionsLock: Mutex[F],
     override val accountUpdatesLock: Mutex[F],
+    override val orderIdsLock: Mutex[F],
     private val connectedPort: Port,
     private val liveTrading: IBSocketClientCats.LiveTrading,
     private val sessionAccounts: Deferred[F, String]
@@ -328,6 +329,7 @@ object IBSocketClientCats:
       openOrdersLock <- Resource.eval(Mutex[F])
       positionsLock <- Resource.eval(Mutex[F])
       accountUpdatesLock <- Resource.eval(Mutex[F])
+      orderIdsLock <- Resource.eval(Mutex[F])
       sessionAccounts <- Resource.eval(Deferred[F, String])
       client = new IBSocketClientCats[F](
         socket,
@@ -335,6 +337,7 @@ object IBSocketClientCats:
         openOrdersLock,
         positionsLock,
         accountUpdatesLock,
+        orderIdsLock,
         port,
         settings.liveTrading,
         sessionAccounts

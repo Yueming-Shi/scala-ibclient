@@ -14,6 +14,8 @@ import com.comcast.ip4s.*
 import fs2.Stream
 import weaver.SimpleIOSuite
 
+import scala.concurrent.duration.*
+
 /** Unit tests (no TWS needed) for placing and cancelling orders: paper-session guard, placeOrder / cancelOrder /
   * reqGlobalCancel / nextValidOrderId encoding, and the order-events stream.
   */
@@ -87,7 +89,11 @@ object PlaceOrdersSpec extends SimpleIOSuite:
         expect.same(List("BUY", "1", "LMT", "1.0", "0.0", "DAY"), fields.slice(16, 22)) and
         expect.same(Account, fields(23)) and // after ocaGroup
         expect(!fields.contains("MKT")) and
-        expect(fields.length > 40) // the rest of the v177 body is present
+        // FA profile field omitted at server version 177; randomize size/price are false; ends with empty manualOrderTime
+        expect(!fields.contains("faProfile")) and
+        expect(fields.containsSlice(List("0", "0"))) and // randomizeSize, randomizePrice
+        expect.same("", fields.last) and // manualOrderTime
+        expect(fields.length > 40)
     }
   }
 
@@ -129,6 +135,15 @@ object PlaceOrdersSpec extends SimpleIOSuite:
       client <- fakeClient(msgs*)
       events <- client.placeOrder(42, Spy, limitBuy(1.0)).compile.toList
     yield expect.same(List(status(42, Order.Status.Submitted), filled), events)
+  }
+
+  test("nextValidOrderId allocations on one connection run one at a time") {
+    for
+      client <- endlessFakeClient(NextValidId(10))
+      blocked <- client.orderIdsLock.lock.surround(client.nextValidOrderId.timeout(200.millis).attempt)
+      free <- client.nextValidOrderId
+      sent <- client.sent.get
+    yield expect(blocked.isLeft) and expect.same(10, free) and expect.same(Vector(List("8", "1", "1")), sent)
   }
 
   private def run(orderId: Int, msgs: ResponseMsg*) =

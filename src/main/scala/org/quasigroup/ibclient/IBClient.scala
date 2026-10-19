@@ -47,6 +47,9 @@ trait IBClient[F[_]: Async]:
     */
   def requirePaperSession: F[Unit]
 
+  /** Next-valid-id replies carry no request id, so only one id allocation may run at a time on a connection. */
+  def orderIdsLock: Mutex[F]
+
   /** TWS keeps one account-updates subscription per connection, so only one runs at a time. */
   def accountUpdatesLock: Mutex[F]
 
@@ -287,11 +290,15 @@ trait IBClient[F[_]: Async]:
   def reqGlobalCancel: F[Unit] =
     requirePaperSession >> requestOnly[ReqGlobalCancel](ReqGlobalCancel())
 
-  /** Asks TWS for the next unused order id (and reserves it). */
+  /** Asks TWS for the next unused order id. Concurrent callers wait for each other so two programs on one
+    * connection cannot receive the same id.
+    */
   def nextValidOrderId: F[Int] =
-    subscribe.use(msgs =>
-      requestOnly[ReqIds](ReqIds(numIds = 1)) *>
-        msgs.collectFirst { case NextValidId(id) => id }.compile.lastOrError
+    orderIdsLock.lock.surround(
+      subscribe.use(msgs =>
+        requestOnly[ReqIds](ReqIds(numIds = 1)) *>
+          msgs.collectFirst { case NextValidId(id) => id }.compile.lastOrError
+      )
     )
 
   def reqManagedAccts: F[ManagedAccounts] =
