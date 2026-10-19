@@ -97,6 +97,20 @@ trait IBClient[F[_]: Async]:
       requestThrough[ReqAllOpenOrders, OpenOrder](ReqAllOpenOrders())(Orders.openOrders)
 
   /** Chooses real-time, frozen, delayed or delayed-frozen market data for later requests. */
+  /** Order status updates (submitted, filled, cancelled, ...) of all orders this client sees. TWS sends them by itself
+    * after an order is placed, modified or cancelled and in reply to open-orders requests. Updates are listened for as
+    * soon as the resource is open, so open it before placing an order to see all of them. The stream never ends by
+    * itself; it fails if an update cannot be read or the connection is lost. TWS may repeat the same status.
+    */
+  def orderStatuses: Resource[F, Stream[F, OrderStatusMsg]] =
+    subscribe.map(_.through(Orders.statuses))
+
+  /** The status updates of one order, as a stream that completes with its final one (cancelled or completely filled).
+    * Like [[orderStatuses]], it listens from the moment the resource is opened.
+    */
+  def orderStatus(orderId: Int): Resource[F, Stream[F, OrderStatusMsg]] =
+    subscribe.map(_.through(Orders.statusesOf(orderId)))
+
   def reqMarketDataType(marketDataType: MktDataType): F[Unit] =
     requestOnly[ReqMarketDataType](ReqMarketDataType(marketDataType = marketDataType))
 

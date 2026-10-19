@@ -19,7 +19,7 @@ object OrderStatusMsgReader {
       filled <- read[Decimal]
       remaining <- read[Decimal]
       avgFillPrice <- read[Double]
-      permId <- if version >= 2 then read[Int] else readNothing(0)
+      permId <- if version >= 2 then read[Long] else readNothing(0L) // permanent ids can exceed Int
       parentId <- if version >= 3 then read[Int] else readNothing(0)
       lastFillPrice <- if version >= 4 then read[Double] else readNothing(0.0)
       clientId <- if version >= 5 then read[Int] else readNothing(0)

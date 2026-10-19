@@ -51,7 +51,7 @@ enum ResponseMsg:
       filled: Decimal,
       remaining: Decimal,
       avgFillPrice: Double,
-      permId: Int,
+      permId: Long,
       parentId: Int,
       lastFillPrice: Double,
       clientId: Int,

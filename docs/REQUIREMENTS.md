@@ -90,3 +90,27 @@ without a price condition and with an algo strategy, and the last fields are che
 the open orders stream ends at "open order end"; an unreadable message is passed on without stopping the
 connection, makes the open orders stream fail when it was an open order, and is ignored otherwise; a second
 open-orders request waits while one is running.
+
+## 4. Order status
+
+**What it does:** after an order is placed, changed or cancelled, TWS keeps reporting its progress: waiting,
+submitted, partly filled, filled, cancelled. The program can follow these updates as a stream.
+
+- `orderStatuses` gives the updates of every order this program sees; `orderStatus(orderId)` follows one order.
+- Each update says the order's state, how much is filled and how much remains, the average and last fill price,
+  the order's permanent id and, if TWS is holding the order, why.
+- Following one order finishes by itself when the order is cancelled or completely filled.
+- Listening starts as soon as the stream is opened, so open it before placing the order to see every update.
+  TWS may send the same update twice; both are passed on.
+- Following orders never silently stops: if an update cannot be read, or the connection to TWS or IB is lost, the
+  stream fails with an error.
+- No message is sent to TWS: these updates arrive by themselves (also in reply to an open-orders request).
+
+**Fixes made along the way:** the order's permanent id can be larger than a regular whole number allows and is
+now kept as a long number.
+
+**How we check it (unit tests, no TWS needed):** canned order status messages are decoded for recent servers
+(no version field, with the market cap price) and for an older one (with a version field), including fractional
+quantities, very large permanent ids, an unknown state and dropped empty fields at the end; following one order
+ends at "cancelled" or "filled with nothing remaining" and ignores other orders; unreadable updates and connection
+loss make the stream fail; nothing is sent to TWS.
