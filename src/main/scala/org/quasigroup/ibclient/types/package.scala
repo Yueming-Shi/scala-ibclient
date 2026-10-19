@@ -571,7 +571,7 @@ final case class Order(
     clientId: Int = -1,
     orderId: Int = -1,
     permId: Long = -1,
-    parentId: Int = -1,
+    parentId: Int = 0,
     // primary attributes
     action: Action = Action.BUY,
     totalQuantity: Decimal = Decimal.INVALID,

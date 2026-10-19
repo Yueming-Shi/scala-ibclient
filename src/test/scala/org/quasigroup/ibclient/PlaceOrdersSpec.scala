@@ -88,6 +88,7 @@ object PlaceOrdersSpec extends SimpleIOSuite:
         expect.same(List("", ""), fields.slice(14, 16)) and // secIdType, secId
         expect.same(List("BUY", "1", "LMT", "1.0", "0.0", "DAY"), fields.slice(16, 22)) and
         expect.same(Account, fields(23)) and // after ocaGroup
+        expect.same("0", fields(28)) and // parentId must be 0, not -1 (TWS error 135)
         expect(!fields.contains("MKT")) and
         // FA profile field omitted at server version 177; randomize size/price are false; ends with empty manualOrderTime
         expect(!fields.contains("faProfile")) and
