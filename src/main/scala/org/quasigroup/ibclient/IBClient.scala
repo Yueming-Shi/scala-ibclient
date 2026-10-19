@@ -17,7 +17,7 @@ import org.quasigroup.ibclient.response.MsgDecoders.{*, given}
 import cats.effect.{Async, Resource}
 import cats.effect.syntax.all.*
 import cats.syntax.all.*
-import fs2.Stream
+import fs2.{Pipe, Stream}
 
 import scala.concurrent.duration.DurationInt
 import scala.reflect.ClassTag
@@ -34,6 +34,45 @@ trait IBClient[F[_]: Async]:
     * missed.
     */
   def subscribe: Resource[F, Stream[F, ResponseMsg]]
+
+  /** Subscribes, then sends `request`, then streams the incoming messages through `responses`.
+    *
+    * Always give `Req` explicitly: enum constructors such as `ReqMktData(...)` are typed as `RequestMsg`, which would
+    * pick the wrong encoder.
+    */
+  def requestThrough[Req <: RequestMsg: MsgEncoder, A](request: Req)(responses: Pipe[F, ResponseMsg, A]): Stream[F, A] =
+    Stream.resource(subscribe).flatMap(msgs => Stream.exec(requestOnly[Req](request)) ++ msgs.through(responses))
+
+  /** Streams market data ticks for `tickerId` until the stream is stopped (then the subscription is cancelled) or, for
+    * snapshots, until TWS signals the end of the snapshot. Fails with [[MarketData.RequestFailed]] on a TWS error for
+    * this ticker.
+    */
+  def reqMktData(
+      tickerId: Int,
+      contract: Contract,
+      genericTickList: String = "",
+      snapshot: Boolean = false,
+      regulatorySnapshot: Boolean = false,
+      mktDataOptions: List[TagValue] = Nil
+  ): Stream[F, MarketData.Tick] =
+    val ticks = requestThrough[ReqMktData, MarketData.Tick](
+      ReqMktData(
+        tickerId = tickerId,
+        contract = contract,
+        genericTickList = genericTickList,
+        snapshot = snapshot,
+        regulatorySnapshot = regulatorySnapshot,
+        mktDataOptions = mktDataOptions
+      )
+    )(MarketData.ticks(tickerId))
+    if snapshot || regulatorySnapshot then ticks else ticks.onFinalize(cancelMktData(tickerId))
+
+  def cancelMktData(tickerId: Int): F[Unit] =
+    requestOnly[CancelMktData](CancelMktData(tickerId = tickerId))
+
+  /** Chooses real-time, frozen, delayed or delayed-frozen market data for later requests. */
+  def reqMarketDataType(marketDataType: MktDataType): F[Unit] =
+    requestOnly[ReqMarketDataType](ReqMarketDataType(marketDataType = marketDataType))
 
   def reqFamilyCodes: F[FamilyCodes] =
     for {

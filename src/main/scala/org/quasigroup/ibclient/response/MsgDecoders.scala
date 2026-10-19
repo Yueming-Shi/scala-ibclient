@@ -76,8 +76,8 @@ object MsgDecoders:
           UpdatePortfolioReader.create(using serverVersion).runA(entry.tail)
         case ACCT_UPDATE_TIME =>
           summon[Decoder[UpdateAccountTime]](entry.tail.tail)
-        case ERR_MSG =>
-          summon[Decoder[ErrorDetail]](entry.tail)
+        case ERR_MSG => // msgId, version, id, errorCode, errorMsg, advancedOrderRejectJson
+          summon[Decoder[ErrorDetail]](entry.tail.tail)
         case OPEN_ORDER =>
           OrderReader.processOpenOrder(using serverVersion).runA(entry.tail)
         case NEXT_VALID_ID =>
@@ -123,8 +123,8 @@ object MsgDecoders:
           summon[Decoder[DeltaNeutralValidation]](entry.tail.tail)
         case TICK_SNAPSHOT_END =>
           summon[Decoder[TickSnapshotEnd]](entry.tail.tail)
-        case MARKET_DATA_TYPE =>
-          summon[Decoder[MarketDataType]](entry.tail)
+        case MARKET_DATA_TYPE => // msgId, version, reqId, marketDataType
+          summon[Decoder[MarketDataType]](entry.tail.tail)
         case COMMISSION_REPORT =>
           summon[Decoder[CommissionReport]](entry.tail.tail).map(CommissionReportMsg(_))
         case VERIFY_MESSAGE_API =>

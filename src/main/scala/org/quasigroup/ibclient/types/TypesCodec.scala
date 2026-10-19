@@ -129,8 +129,9 @@ object TypesCodec:
 
   inline given Encoder[TickType] = summon[Encoder[Int]].contramap(_.index)
 
+  /** Tick types are identified by their TWS index (not the enum ordinal: indices 59 and 60 are unused). */
   inline given Decoder[TickType] =
-    summon[Decoder[Int]].map(TickType.fromOrdinal)
+    summon[Decoder[Int]].map(index => TickType.values.find(_.index == index).getOrElse(TickType.UNKNOWN))
 
   inline given Decoder[SecType] =
     summon[Decoder[String]].map(str => SecType.valueOf(str.replace('+', '_')))

@@ -77,7 +77,7 @@ object Decoder {
                 for
                   product <- state
                   item <- StateT[ThrowableOr, Array[String], Any](array =>
-                    e.asInstanceOf[Decoder[Any]].apply(array).map(array.tail -> _)
+                    e.asInstanceOf[Decoder[Any]].apply(array).map((if array.isEmpty then array else array.tail) -> _)
                   )
                 yield product :* item
               }

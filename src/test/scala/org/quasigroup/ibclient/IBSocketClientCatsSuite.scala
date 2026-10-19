@@ -57,6 +57,14 @@ object IBSocketClientCatsSuite extends IOSuite with ContractSpec with OrderSpec:
     }
   }
 
+  integrationTest("stream market data (delayed if not subscribed)") { case (ibclient, random) =>
+    for
+      tickerId <- random.nextIntBounded(1000000)
+      _ <- ibclient.reqMarketDataType(MktDataType.Delayed)
+      ticks <- ibclient.reqMktData(tickerId, USStockAtSmart).take(3).compile.toList.timeout(30.seconds)
+    yield expect(ticks.size == 3)
+  }
+
 //    test("obtain historical ticks") { case (ibclient, random) =>
 //     for {
 //       reqId1 <- random.nextInt

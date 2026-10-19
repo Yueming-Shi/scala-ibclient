@@ -24,3 +24,31 @@ account. Connecting to the wrong one by mistake could place real trades.
 guard; 7496 and 4001 are refused without the opt-in and accepted only with it; other ports such as 4002
 (IB Gateway paper) are allowed; paper account lists pass, while live, mixed or empty account lists are refused
 without the opt-in; and `make` itself refuses a live port before connecting.
+
+## 2. Streaming market data
+
+**Why:** to follow a stock's price live: bid, ask, last trade, volume and so on.
+
+**What it does:**
+
+- `reqMktData(tickerId, contract)` asks TWS for market data on one instrument and returns a stream of updates
+  ("ticks") for that request only. Each tick is one of: a price (with its size when TWS sends one), a size,
+  a text value (for example the last trade time), a number (for example "halted"), or a note saying whether
+  the data is real-time, frozen or delayed.
+- Stopping the stream (for example with `take(10)`) automatically tells TWS to stop sending data
+  (`cancelMktData`). A one-off snapshot (`snapshot = true`) ends on its own when TWS says it is complete.
+- If TWS reports an error for the request (for example "not subscribed to this market data"), the stream fails
+  with that error instead of waiting forever. Warnings such as "displaying delayed data" are ignored.
+- `reqMarketDataType` chooses real-time, frozen, delayed or delayed-frozen data. Paper accounts without data
+  subscriptions can use delayed data.
+- The subscription is opened before the request is sent, so the first ticks are never missed.
+
+**Fixes made along the way:** delayed tick types (66 and above) were decoded as the wrong type; the
+"market data type" and error messages were read one field off; a message ending in an empty field could crash
+decoding; combo (BAG) contracts were sent without their legs.
+
+**How we check it (unit tests, no TWS needed):** the request, cancel and data-type messages are compared field
+by field with the TWS API format; canned tickPrice / tickSize / tickString / tickGeneric / marketDataType /
+error messages are decoded from raw bytes; the tick stream keeps only its own ticker, ends at the snapshot end,
+fails on errors, and cancels the subscription when stopped. One integration test (skipped without TWS) streams
+three delayed ticks for IBM from the paper account.

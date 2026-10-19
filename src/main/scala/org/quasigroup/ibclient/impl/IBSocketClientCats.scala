@@ -41,7 +41,6 @@ class IBSocketClientCats[F[_]: Async: Console](
     socket: Socket[F],
     optionalCapabilities: Option[String]
 ) extends IBClient[F]:
-  private final val MAX_MSG_LENGTH: Int = 0xffffff
   import IBSocketClientCats.{*, given}
 
   private val requestRateLimiterRef: Ref[F, Int] = Ref.unsafe(50)
@@ -70,7 +69,7 @@ class IBSocketClientCats[F[_]: Async: Console](
         .fromQueueUnterminated(msgQueue)
         .concurrently(
           socket.reads
-            .through(ibFramesString.toPipeByte)
+            .through(frames.toPipeByte)
             .evalTap(strs => Console[F].println(strs.mkString("[", ",", "]")))
             .evalMap(decode(_).liftTo[F])
             .evalTap(Console[F].println)
@@ -85,22 +84,6 @@ class IBSocketClientCats[F[_]: Async: Console](
       _ <- msgPushingFiberDeferred.complete(pushFiber)
       _ <- msgTopicDeferred.complete(msgTopic)
     yield ()
-
-  private val ibFramesString: StreamDecoder[Array[String]] =
-    for
-      msgSize <- StreamDecoder.many(int32)
-      rawMessage <-
-        if msgSize <= MAX_MSG_LENGTH then
-          StreamDecoder.once(
-            bytes(msgSize).map(_.decodeUtf8Lenient.split(0.toChar))
-          )
-        else
-          StreamDecoder.raiseError(
-            InvalidMessageLengthException(
-              "message size is too large: " + msgSize
-            )
-          )
-    yield rawMessage
 
   override def subscribe: Resource[F, Stream[F, ResponseMsg]] =
     Resource.eval(msgTopicDeferred.get).flatMap(_.subscribeAwait(Int.MaxValue))
@@ -197,6 +180,29 @@ class IBSocketClientCats[F[_]: Async: Console](
     yield ()
 
 object IBSocketClientCats:
+  final val MAX_MSG_LENGTH: Int = 0xffffff
+
+  /** Splits the TWS byte stream into messages: a 4-byte big-endian length, then NUL-separated fields. */
+  val frames: StreamDecoder[Array[String]] =
+    for
+      msgSize <- StreamDecoder.many(int32)
+      rawMessage <-
+        if msgSize <= MAX_MSG_LENGTH then
+          StreamDecoder.once(
+            bytes(msgSize).map(_.decodeUtf8Lenient.split(0.toChar))
+          )
+        else
+          StreamDecoder.raiseError(
+            InvalidMessageLengthException(
+              "message size is too large: " + msgSize
+            )
+          )
+    yield rawMessage
+
+  /** Decodes raw TWS bytes into response messages. */
+  def responses[F[_]: RaiseThrowable](using IBClient.ServerVersion): Pipe[F, Byte, ResponseMsg] =
+    _.through(frames.toPipeByte).flatMap(fields => Stream.fromEither[F](decode(fields)))
+
   final case class ConnectionAck(
       serverVersion: IBClient.ServerVersion,
       time: String
