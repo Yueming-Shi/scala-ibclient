@@ -50,7 +50,8 @@ object Wire:
   final class FakeClient(
       incoming: List[ResponseMsg],
       val sent: Ref[IO, Vector[List[String]]],
-      val openOrdersLock: Mutex[IO]
+      val openOrdersLock: Mutex[IO],
+      val positionsLock: Mutex[IO]
   ) extends IBClient[IO]:
     def requestOnly[Req <: RequestMsg: MsgEncoder](request: Req): IO[Unit] =
       encoded(request).flatMap(f => sent.update(_ :+ f))
@@ -61,4 +62,4 @@ object Wire:
       Stream.emits(incoming).covary[IO].collect { case r: Resp => r }
 
   def fakeClient(incoming: ResponseMsg*): IO[FakeClient] =
-    (Ref.of[IO, Vector[List[String]]](Vector.empty), Mutex[IO]).mapN(FakeClient(incoming.toList, _, _))
+    (Ref.of[IO, Vector[List[String]]](Vector.empty), Mutex[IO], Mutex[IO]).mapN(FakeClient(incoming.toList, _, _, _))

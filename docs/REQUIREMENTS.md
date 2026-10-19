@@ -158,3 +158,34 @@ executions and their commission reports, keeps commission reports that arrive af
 soon as all of them arrived or after the wait, and fails on a TWS error, an unreadable execution or commission
 report of its own (but not of another request), and connection loss. An integration test (read only, skipped without the paper
 TWS on port 7497) lists today's executions.
+
+## 6. Portfolio (read only)
+
+These features only read the account. None of them places, changes or cancels an order.
+
+### 6a. Positions
+
+**What it does:** the program can ask TWS what the account holds right now and get the answer as a list that
+ends by itself.
+
+- `reqPositions` asks for the positions of every account this TWS session manages. Each position says the
+  account, the instrument (id, symbol, kind of security, exchange, currency, ...), the quantity (which can be
+  fractional, or negative for a short position) and the average cost.
+- The list ends when TWS says it is complete ("position end"). TWS would keep sending changes after that, so
+  when the list ends, or when the program stops reading it early, the library tells TWS to stop
+  (`cancelPositions`).
+- The list never silently misses something: if a position cannot be read, or the connection to TWS or IB is lost,
+  it fails with an error.
+- Position replies do not say which request they answer, so on one connection only one positions request runs at
+  a time; a second one waits for the first to finish.
+
+**Fixes made along the way:** `reqPositions` used to return every position message ever received without
+stopping at "position end" and without cancelling the subscription.
+
+**How we check it (unit tests, no TWS needed):** the request and cancel messages are compared with the TWS API
+format; canned position messages (message version 3, server version 177) are decoded, including fractional and
+short quantities, and "position end" decodes; the stream keeps the positions up to "position end", cancels the
+subscription both at the end and when stopped early, completes for an empty account, fails on an unreadable
+position (but not on other unreadable messages) and on connection loss, and a second request waits while one is
+running. An integration test (read only, skipped without the paper TWS on port 7497) lists the paper account's
+positions and prints only how many there are.

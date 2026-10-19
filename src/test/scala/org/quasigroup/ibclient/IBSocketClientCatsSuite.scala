@@ -194,3 +194,11 @@ object IBSocketClientCatsSuite extends IOSuite with ContractSpec with OrderSpec:
       case _              => true
     })
   }
+
+  integrationTest("list the paper account's positions (read only)") { case (ibclient, _) =>
+    for
+      positions <- ibclient.reqPositions.compile.toList.timeout(30.seconds)
+      // only counts are printed, never the positions themselves
+      _ <- IO.println(s"[integration] positions: ${positions.size} in ${positions.map(_.account).distinct.size} account(s)")
+    yield expect(positions.forall(p => IBSocketClientCats.isPaperAccount(p.account)))
+  }

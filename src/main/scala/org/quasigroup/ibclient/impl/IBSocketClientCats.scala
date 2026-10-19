@@ -41,7 +41,8 @@ import java.time.ZoneId
 class IBSocketClientCats[F[_]: Async: Console](
     socket: Socket[F],
     optionalCapabilities: Option[String],
-    override val openOrdersLock: Mutex[F]
+    override val openOrdersLock: Mutex[F],
+    override val positionsLock: Mutex[F]
 ) extends IBClient[F]:
   import IBSocketClientCats.{*, given}
 
@@ -292,8 +293,9 @@ object IBSocketClientCats:
     for
       port <- Resource.eval(checkPort(settings.port, settings.liveTrading).liftTo[F])
       socket <- Network[F].client(SocketAddress(settings.host, port))
-      lock <- Resource.eval(Mutex[F])
-      client = new IBSocketClientCats[F](socket, settings.optionalCapabilities, lock)
+      openOrdersLock <- Resource.eval(Mutex[F])
+      positionsLock <- Resource.eval(Mutex[F])
+      client = new IBSocketClientCats[F](socket, settings.optionalCapabilities, openOrdersLock, positionsLock)
       _ <- Resource.make(client.eConnect(settings.clientId))(_ => client.eDisconnect)
       _ <- Resource.eval(
         client.managedAccounts.timeout(10.seconds).flatMap(checkAccounts(_, settings.liveTrading).liftTo[F])

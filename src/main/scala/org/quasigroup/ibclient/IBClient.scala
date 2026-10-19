@@ -39,6 +39,9 @@ trait IBClient[F[_]: Async]:
   /** Open-order replies carry no request id, so only one open-orders request may run at a time on a connection. */
   def openOrdersLock: Mutex[F]
 
+  /** Position replies carry no request id, so only one positions request may run at a time on a connection. */
+  def positionsLock: Mutex[F]
+
   /** Subscribes, then sends `request`, then streams the incoming messages through `responses`.
     *
     * Always give `Req` explicitly: enum constructors such as `ReqMktData(...)` are typed as `RequestMsg`, which would
@@ -160,12 +163,16 @@ trait IBClient[F[_]: Async]:
       SetServerLogLevel(loglevel = level)
     )
 
-  def reqPositions: Stream[F, PositionMsg] = requestStreamResponse[ReqPositions, PositionMsg](ReqPositions())
+  /** The positions of every account this TWS session manages, as a stream that completes when TWS has sent them all
+    * (positionEnd). When the stream ends or is stopped, the subscription is cancelled (cancelPositions). Fails if a
+    * position cannot be read or the connection is lost. Concurrent calls wait for each other.
+    */
+  def reqPositions: Stream[F, PositionMsg] =
+    Stream.resource(positionsLock.lock) >>
+      requestThrough[ReqPositions, PositionMsg](ReqPositions())(Portfolio.positions).onFinalize(cancelPositions)
 
   def cancelPositions: F[Unit] =
-    requestOnly[CancelPositions](
-      CancelPositions()
-    )
+    requestOnly[CancelPositions](CancelPositions())
 
   def reqManagedAccts: F[ManagedAccounts] =
     requestSingleResponse[ReqManagedAccts, ManagedAccounts](ReqManagedAccts())
