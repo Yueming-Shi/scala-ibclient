@@ -14,7 +14,7 @@ import org.quasigroup.ibclient.response.ResponseMsg
 import org.quasigroup.ibclient.response.ResponseMsg.*
 import org.quasigroup.ibclient.response.MsgDecoders.{*, given}
 
-import cats.effect.Async
+import cats.effect.{Async, Resource}
 import cats.effect.syntax.all.*
 import cats.syntax.all.*
 import fs2.Stream
@@ -29,6 +29,11 @@ trait IBClient[F[_]: Async]:
   def fetchSingleResponse[Resp <: ResponseMsg: ClassTag]: F[Resp]
 
   def fetchResponseStream[Resp <: ResponseMsg: ClassTag]: Stream[F, Resp]
+
+  /** All incoming messages. The subscription is live once the resource is acquired, so nothing sent after that is
+    * missed.
+    */
+  def subscribe: Resource[F, Stream[F, ResponseMsg]]
 
   def reqFamilyCodes: F[FamilyCodes] =
     for {

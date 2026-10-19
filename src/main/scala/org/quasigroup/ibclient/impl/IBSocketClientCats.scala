@@ -102,6 +102,16 @@ class IBSocketClientCats[F[_]: Async: Console](
           )
     yield rawMessage
 
+  override def subscribe: Resource[F, Stream[F, ResponseMsg]] =
+    Resource.eval(msgTopicDeferred.get).flatMap(_.subscribeAwait(Int.MaxValue))
+
+  /** The comma-separated account ids this TWS session manages. */
+  def managedAccounts: F[String] =
+    subscribe.use(msgs =>
+      requestOnly[ReqManagedAccts](ReqManagedAccts()) *>
+        msgs.collectFirst { case ManagedAccounts(accounts) => accounts }.compile.lastOrError
+    )
+
   override def fetchSingleResponse[Resp <: ResponseMsg: ClassTag]: F[Resp] =
     for
       msgStream <- msgTopicDeferred.get
@@ -198,10 +208,10 @@ object IBSocketClientCats:
   /** TWS paper-trading API port. This is the default. */
   val PaperPort: Port = port"7497"
 
-  /** Ports that reach a LIVE account (TWS live / IB Gateway live). */
+  /** Ports that reach a LIVE account by default (TWS live / IB Gateway live). */
   val LivePorts: Set[Port] = Set(port"7496", port"4001")
 
-  /** Explicit opt-in needed before [[make]] will connect to a live port. */
+  /** Explicit opt-in needed before [[make]] will use a live port or a live account. */
   enum LiveTrading:
     case Refused, IUnderstandThisIsARealMoneyAccount
 
@@ -210,12 +220,31 @@ object IBSocketClientCats:
         s"port $port is a LIVE trading port; pass LiveTrading.IUnderstandThisIsARealMoneyAccount to use it"
       )
 
+  final case class LiveAccountRefused(accounts: String)
+      extends IllegalStateException(
+        s"TWS manages non-paper account(s) [$accounts]; pass LiveTrading.IUnderstandThisIsARealMoneyAccount to use them"
+      )
+
   /** Pure check run before any socket is opened. */
   def checkPort(port: Port, liveTrading: LiveTrading = LiveTrading.Refused): Either[Throwable, Port] =
     Either.cond(
       !LivePorts(port) || liveTrading == LiveTrading.IUnderstandThisIsARealMoneyAccount,
       port,
       LivePortRefused(port)
+    )
+
+  /** IB paper account ids start with "D" (DU..., DF...); live ones do not. */
+  def isPaperAccount(account: String): Boolean = account.startsWith("D")
+
+  /** Pure check run right after the handshake: every managed account must be a paper account (TWS ports are
+    * configurable, so the port alone does not prove we are on the paper account).
+    */
+  def checkAccounts(accounts: String, liveTrading: LiveTrading = LiveTrading.Refused): Either[Throwable, String] =
+    val ids = accounts.split(',').map(_.trim).filter(_.nonEmpty)
+    Either.cond(
+      liveTrading == LiveTrading.IUnderstandThisIsARealMoneyAccount || (ids.nonEmpty && ids.forall(isPaperAccount)),
+      accounts,
+      LiveAccountRefused(accounts)
     )
 
   /** Connection settings. The defaults connect to the paper account on this machine. */
@@ -227,12 +256,16 @@ object IBSocketClientCats:
       liveTrading: LiveTrading = LiveTrading.Refused
   )
 
+  /** Connects to TWS. Refuses live ports before connecting, and live accounts right after the handshake, unless
+    * `settings.liveTrading` opts in.
+    */
   def make[F[_]: Async: Console](settings: Settings = Settings()): Resource[F, IBClient[F]] =
     for
       port <- Resource.eval(checkPort(settings.port, settings.liveTrading).liftTo[F])
-      client <- Network[F]
-        .client(SocketAddress(settings.host, port))
-        .map(new IBSocketClientCats[F](_, settings.optionalCapabilities))
-        .evalTap(_.eConnect(settings.clientId))
-      _ <- Resource.onFinalize(client.eDisconnect)
+      socket <- Network[F].client(SocketAddress(settings.host, port))
+      client = new IBSocketClientCats[F](socket, settings.optionalCapabilities)
+      _ <- Resource.make(client.eConnect(settings.clientId))(_ => client.eDisconnect)
+      _ <- Resource.eval(
+        client.managedAccounts.timeout(10.seconds).flatMap(checkAccounts(_, settings.liveTrading).liftTo[F])
+      )
     yield client

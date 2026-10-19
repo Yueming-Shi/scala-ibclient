@@ -24,21 +24,24 @@ import scala.concurrent.duration._
 
 /** INTEGRATION tests: they talk to a running Trader Workstation on the PAPER port 7497.
   *
-  * They are skipped (reported as ignored) when nothing listens on 127.0.0.1:7497, so `sbt test` stays green on any
-  * machine. The client is created with the default settings, which point at the paper port and refuse live ports.
+  * The shared client is created with the default settings (paper port, live ports and live accounts refused) using
+  * the real API handshake. When that fails or times out (TWS not running, API disabled), every test here is reported
+  * as ignored with the reason, so `sbt test` stays green on any machine.
   */
 object IBSocketClientCatsSuite extends IOSuite with ContractSpec with OrderSpec:
 
-  override type Res = Option[(IBClient[IO], Random[IO])]
+  override type Res = Either[String, (IBClient[IO], Random[IO])]
 
   override def sharedResource: Resource[IO, Res] =
-    Resource.eval(PaperTws.isListening).flatMap {
-      case true  => IBSocketClientCats.make[IO]().both(Resource.eval(Random.scalaUtilRandom[IO])).map(_.some)
-      case false => Resource.pure(None)
-    }
+    Resource
+      .make(IBSocketClientCats.make[IO]().allocated.timeout(20.seconds).attempt)(_.fold(_ => IO.unit, _._2))
+      .evalMap(
+        _.leftMap(e => s"TWS paper API not available on 127.0.0.1:7497 ($e)")
+          .traverse { case (client, _) => Random.scalaUtilRandom[IO].map(client -> _) }
+      )
 
   def integrationTest(name: String)(body: ((IBClient[IO], Random[IO])) => IO[Expectations]): Unit =
-    test(name)(_.fold(ignore(PaperTws.skipReason))(body))
+    test(name)(_.fold(ignore(_), body))
 
   integrationTest("obtain histogram") { case (ibclient, random) =>
     for {
