@@ -6,6 +6,8 @@ import org.quasigroup.ibclient.request.MsgEncoders.{MsgEncoder, encode}
 import org.quasigroup.ibclient.response.ResponseMsg
 
 import cats.effect.{IO, Ref, Resource}
+import cats.effect.std.Mutex
+import cats.syntax.all.*
 import fs2.{Chunk, Stream}
 
 import java.nio.ByteBuffer
@@ -45,7 +47,11 @@ object Wire:
     decodeAll(frame(fields*)).map(_.head)
 
   /** A client without a socket: incoming messages are canned, sent requests are recorded as wire fields. */
-  final class FakeClient(incoming: List[ResponseMsg], val sent: Ref[IO, Vector[List[String]]]) extends IBClient[IO]:
+  final class FakeClient(
+      incoming: List[ResponseMsg],
+      val sent: Ref[IO, Vector[List[String]]],
+      val openOrdersLock: Mutex[IO]
+  ) extends IBClient[IO]:
     def requestOnly[Req <: RequestMsg: MsgEncoder](request: Req): IO[Unit] =
       encoded(request).flatMap(f => sent.update(_ :+ f))
     def subscribe: Resource[IO, Stream[IO, ResponseMsg]] = Resource.pure(Stream.emits(incoming))
@@ -55,4 +61,4 @@ object Wire:
       Stream.emits(incoming).covary[IO].collect { case r: Resp => r }
 
   def fakeClient(incoming: ResponseMsg*): IO[FakeClient] =
-    Ref.of[IO, Vector[List[String]]](Vector.empty).map(FakeClient(incoming.toList, _))
+    (Ref.of[IO, Vector[List[String]]](Vector.empty), Mutex[IO]).mapN(FakeClient(incoming.toList, _, _))

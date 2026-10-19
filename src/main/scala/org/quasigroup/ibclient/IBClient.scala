@@ -15,6 +15,7 @@ import org.quasigroup.ibclient.response.ResponseMsg.*
 import org.quasigroup.ibclient.response.MsgDecoders.{*, given}
 
 import cats.effect.{Async, Resource}
+import cats.effect.std.Mutex
 import cats.effect.syntax.all.*
 import cats.syntax.all.*
 import fs2.{Pipe, Stream}
@@ -34,6 +35,9 @@ trait IBClient[F[_]: Async]:
     * missed.
     */
   def subscribe: Resource[F, Stream[F, ResponseMsg]]
+
+  /** Open-order replies carry no request id, so only one open-orders request may run at a time on a connection. */
+  def openOrdersLock: Mutex[F]
 
   /** Subscribes, then sends `request`, then streams the incoming messages through `responses`.
     *
@@ -75,13 +79,22 @@ trait IBClient[F[_]: Async]:
   def cancelMktData(tickerId: Int): F[Unit] =
     requestOnly[CancelMktData](CancelMktData(tickerId = tickerId))
 
-  /** The open orders placed by this client, as a stream that completes when TWS has sent them all. */
+  /** The open orders placed by this client, as a stream that completes when TWS has sent them all. Concurrent calls
+    * wait for each other.
+    *
+    * Note: when the client id is 0, TWS also binds manually entered TWS orders to this client (they become modifiable
+    * through the API). The default client id is 10.
+    */
   def reqOpenOrders: Stream[F, OpenOrder] =
-    requestThrough[ReqOpenOrders, OpenOrder](ReqOpenOrders())(Orders.openOrders)
+    Stream.resource(openOrdersLock.lock) >>
+      requestThrough[ReqOpenOrders, OpenOrder](ReqOpenOrders())(Orders.openOrders)
 
-  /** The open orders of every API client and of TWS itself, as a stream that completes when TWS has sent them all. */
+  /** The open orders of every API client and of TWS itself, as a stream that completes when TWS has sent them all.
+    * Concurrent calls wait for each other.
+    */
   def reqAllOpenOrders: Stream[F, OpenOrder] =
-    requestThrough[ReqAllOpenOrders, OpenOrder](ReqAllOpenOrders())(Orders.openOrders)
+    Stream.resource(openOrdersLock.lock) >>
+      requestThrough[ReqAllOpenOrders, OpenOrder](ReqAllOpenOrders())(Orders.openOrders)
 
   /** Chooses real-time, frozen, delayed or delayed-frozen market data for later requests. */
   def reqMarketDataType(marketDataType: MktDataType): F[Unit] =

@@ -40,7 +40,8 @@ import java.time.ZoneId
 
 class IBSocketClientCats[F[_]: Async: Console](
     socket: Socket[F],
-    optionalCapabilities: Option[String]
+    optionalCapabilities: Option[String],
+    override val openOrdersLock: Mutex[F]
 ) extends IBClient[F]:
   import IBSocketClientCats.{*, given}
 
@@ -72,7 +73,7 @@ class IBSocketClientCats[F[_]: Async: Console](
           socket.reads
             .through(frames.toPipeByte)
             .evalTap(strs => Console[F].println(strs.mkString("[", ",", "]")))
-            .through(decodeOrSkip)
+            .through(decodeOrReport)
             .evalTap(Console[F].println)
             .takeThrough(_ != ConnectionClosed)
             .evalTap(msgQueue.offer)
@@ -200,15 +201,20 @@ object IBSocketClientCats:
           )
     yield rawMessage
 
-  /** Decodes messages; one that cannot be read is reported on stderr and skipped instead of stopping the connection. */
-  def decodeOrSkip[F[_]: Applicative: Console](using IBClient.ServerVersion): Pipe[F, Array[String], ResponseMsg] =
-    _.evalMapFilter(fields =>
+  /** Decodes messages. One that cannot be read does not stop the connection: it is reported on stderr and passed on
+    * as [[ResponseMsg.Unreadable]], so streams waiting for that kind of message can fail rather than miss it.
+    */
+  def decodeOrReport[F[_]: Applicative: Console](using IBClient.ServerVersion): Pipe[F, Array[String], ResponseMsg] =
+    _.evalMap(fields =>
       Either
         .catchNonFatal(decode(fields))
         .flatten
         .fold(
-          e => Console[F].errorln(s"skipping unreadable message ${fields.mkString("[", ",", "]")}: $e").as(None),
-          _.some.pure[F]
+          e =>
+            Console[F]
+              .errorln(s"unreadable message ${fields.mkString("[", ",", "]")}: $e")
+              .as(Unreadable(fields.toList, e.toString)),
+          _.pure[F]
         )
     )
 
@@ -282,7 +288,8 @@ object IBSocketClientCats:
     for
       port <- Resource.eval(checkPort(settings.port, settings.liveTrading).liftTo[F])
       socket <- Network[F].client(SocketAddress(settings.host, port))
-      client = new IBSocketClientCats[F](socket, settings.optionalCapabilities)
+      lock <- Resource.eval(Mutex[F])
+      client = new IBSocketClientCats[F](socket, settings.optionalCapabilities, lock)
       _ <- Resource.make(client.eConnect(settings.clientId))(_ => client.eDisconnect)
       _ <- Resource.eval(
         client.managedAccounts.timeout(10.seconds).flatMap(checkAccounts(_, settings.liveTrading).liftTo[F])

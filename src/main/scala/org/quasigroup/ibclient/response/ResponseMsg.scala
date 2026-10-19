@@ -379,3 +379,6 @@ enum ResponseMsg:
   case SecurityDefinitionOptionalParameterEndMsg(reqId: Int) extends ResponseMsg
 
   case Skip extends ResponseMsg
+
+  /** A message TWS sent that could not be decoded (kept so request streams can fail instead of missing data). */
+  case Unreadable(fields: List[String], reason: String) extends ResponseMsg

@@ -12,6 +12,8 @@ import cats.effect.IO
 import fs2.Stream
 import weaver.SimpleIOSuite
 
+import scala.concurrent.duration.*
+
 /** Unit tests (no TWS needed) for open orders: request encoding, openOrder / openOrderEnd decoding, the stream. */
 object OpenOrdersSpec extends SimpleIOSuite:
 
@@ -131,10 +133,40 @@ object OpenOrdersSpec extends SimpleIOSuite:
       expect.same(Vector(List("5", "1"), List("16", "1")), sent)
   }
 
-  test("a message that cannot be read is skipped by the live connection instead of stopping it") {
+  test("an unreadable message does not stop the live connection: it is passed on as Unreadable") {
     val broken = Array("5", "7", "265598", "AAPL", "NOT_A_SEC_TYPE")
     val good = Array("53", "1")
-    Stream(broken, good).through(IBSocketClientCats.decodeOrSkip[IO]).compile.toList.map(msgs =>
-      expect.same(List(OpenOrderEnd), msgs)
-    )
+    Stream(broken, good).through(IBSocketClientCats.decodeOrReport[IO]).compile.toList.map {
+      case List(Unreadable(fields, _), OpenOrderEnd) => expect.same(broken.toList, fields)
+      case other                                      => failure(s"unexpected $other")
+    }
+  }
+
+  test("the open orders stream fails instead of returning an incomplete list") {
+    for
+      order <- decodeWith(176, openOrderFields(176)).map(_.collect { case o: OpenOrder => o }.head)
+      client <- fakeClient(order, Unreadable(List("5", "8", "x"), "boom"), OpenOrderEnd)
+      result <- client.reqOpenOrders.compile.toList.attempt
+    yield expect.same(Left(Orders.UnreadableOrder(List("5", "8", "x"), "boom")), result)
+  }
+
+  test("unreadable messages of other kinds do not affect the open orders stream") {
+    for
+      order <- decodeWith(176, openOrderFields(176)).map(_.collect { case o: OpenOrder => o }.head)
+      client <- fakeClient(order, Unreadable(List("1", "6", "x"), "boom"), OpenOrderEnd)
+      result <- client.reqOpenOrders.compile.toList
+    yield expect.same(List(7), result.map(_.orderId))
+  }
+
+  test("open-orders requests on one connection run one at a time") {
+    for
+      order <- decodeWith(176, openOrderFields(176)).map(_.collect { case o: OpenOrder => o }.head)
+      client <- fakeClient(order, OpenOrderEnd)
+      blocked <- client.openOrdersLock.lock.surround(
+        client.reqAllOpenOrders.compile.toList.timeout(200.millis).attempt
+      )
+      free <- client.reqAllOpenOrders.compile.toList
+      sent <- client.sent.get
+    yield expect(blocked.isLeft) and expect.same(List(7), free.map(_.orderId)) and
+      expect.same(Vector(List("16", "1")), sent)
   }
