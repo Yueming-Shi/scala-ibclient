@@ -39,6 +39,12 @@ without the opt-in; and `make` itself refuses a live port before connecting.
   (`cancelMktData`). A one-off snapshot (`snapshot = true`) ends on its own when TWS says it is complete.
 - If TWS reports an error for the request (for example "not subscribed to this market data"), the stream fails
   with that error instead of waiting forever. Warnings such as "displaying delayed data" are ignored.
+- If the connection to TWS or to IB's servers is lost (TWS notices 1100, 1101, 1300, or TWS closing the
+  connection), the stream fails so the program can resubscribe, instead of silently receiving nothing.
+- Option greeks, EFP data, request parameters (such as the minimum price step) and news headlines for the
+  request are part of the stream too.
+- Note: asking for a regulatory snapshot (`regulatorySnapshot = true`) costs USD 0.01 per request, even on
+  the paper account.
 - `reqMarketDataType` chooses real-time, frozen, delayed or delayed-frozen data. Paper accounts without data
   subscriptions can use delayed data.
 - The subscription is opened before the request is sent, so the first ticks are never missed.

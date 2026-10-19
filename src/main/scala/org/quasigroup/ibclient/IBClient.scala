@@ -45,7 +45,12 @@ trait IBClient[F[_]: Async]:
 
   /** Streams market data ticks for `tickerId` until the stream is stopped (then the subscription is cancelled) or, for
     * snapshots, until TWS signals the end of the snapshot. Fails with [[MarketData.RequestFailed]] on a TWS error for
-    * this ticker.
+    * this ticker and with [[MarketData.ConnectionLost]] when the connection is lost.
+    *
+    * `regulatorySnapshot = true` costs USD 0.01 per request, on paper accounts too.
+    *
+    * Each stream buffers its ticks until consumed (an unbounded queue, so one slow consumer never blocks the shared
+    * connection); consume promptly or `take` / sample what you need.
     */
   def reqMktData(
       tickerId: Int,

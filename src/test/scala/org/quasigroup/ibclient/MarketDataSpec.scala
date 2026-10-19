@@ -158,3 +158,35 @@ object MarketDataSpec extends SimpleIOSuite:
       sent <- client.sent.get
     yield expect.same(List(mixed(2)), ticks) and expect.same(1, sent.size)
   }
+
+  test("the tick stream fails instead of stalling when the connection is lost") {
+    val lost = List(mixed(2), ErrorDetail(-1, 1101, "Connectivity restored - data lost", ""), mixed(5))
+    val closed = List(mixed(2), ConnectionClosed, mixed(5))
+    for
+      a <- Stream.emits(lost).through(MarketData.ticks[IO](42)).compile.toList.attempt
+      b <- Stream.emits(closed).through(MarketData.ticks[IO](42)).compile.toList.attempt
+      c <- Stream.emits(List(mixed(2), ErrorDetail(-1, 1102, "Connectivity restored - data maintained", ""), mixed(5)))
+        .through(MarketData.ticks[IO](42)).compile.toList
+    yield expect(a.left.exists(_.isInstanceOf[MarketData.ConnectionLost])) and
+      expect(b.left.exists(_.isInstanceOf[MarketData.ConnectionLost])) and
+      expect.same(List(mixed(2), mixed(5)), c)
+  }
+
+  test("option greeks, request parameters and news for the ticker are part of the tick stream") {
+    val greeks = TickOptionComputation(42, TickType.MODEL_OPTION, TickAttrib(), 0.2, 0.5, 3.1, 0.0, 0.05, 0.1, -0.02, 100.0)
+    val params = TickReqParams(42, 0.01, "9c0001", 3)
+    val news = TickNews(42, 1697665000L, "BZ", "BZ$123", "Headline", "")
+    val other = TickReqParams(43, 0.01, "", 3)
+    Stream.emits(List(greeks, other, params, news)).through(MarketData.ticks[IO](42)).compile.toList.map(ticks =>
+      expect.same(List(greeks, params, news), ticks)
+    )
+  }
+
+  test("tickReqParams and tickNews decode from the wire") {
+    decodeAll(
+      frame("81", "42", "0.01", "9c0001", "3"),
+      frame("84", "42", "1697665000", "BZ", "BZ$123", "Headline", "x")
+    ).map(msgs =>
+      expect.same(List(TickReqParams(42, 0.01, "9c0001", 3), TickNews(42, 1697665000L, "BZ", "BZ$123", "Headline", "x")), msgs)
+    )
+  }
