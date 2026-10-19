@@ -29,7 +29,7 @@ object PositionsSpec extends SimpleIOSuite:
     Stream.emits(frame(fields*)).through(IBSocketClientCats.responses[IO]).compile.lastOrError
 
   private def position(account: String, symbol: String, quantity: Int): PositionMsg =
-    PositionMsg(account, Contract(symbol = symbol), Decimal(BigDecimal(quantity)), 10.0)
+    PositionMsg(account, Contract(conId = symbol.hashCode.abs, symbol = symbol), Decimal(BigDecimal(quantity)), 10.0)
 
   test("reqPositions and cancelPositions are encoded like the TWS API") {
     for
@@ -80,7 +80,7 @@ object PositionsSpec extends SimpleIOSuite:
       expect.same(Vector(List("61", "1"), List("64", "1")), sent)
   }
 
-  test("stopping the positions stream early also cancels the subscription") {
+  test("stopping the positions stream after the first position also cancels the subscription") {
     for
       client <- fakeClient(position("DU1234567", "AAPL", 100), position("DU1234567", "IBM", 1), PositionEnd)
       first <- client.reqPositions.take(1).compile.toList
@@ -97,7 +97,38 @@ object PositionsSpec extends SimpleIOSuite:
   }
 
   private def run(msgs: ResponseMsg*) =
-    Stream.emits(msgs).covary[IO].through(Portfolio.positions).compile.toList.attempt
+    Stream.emits(msgs).covary[IO].through(Portfolio.positions(IO.unit)).compile.toList.attempt
+
+  test("an update sent while listing replaces the earlier position of the same account and instrument") {
+    val aapl = position("DU1234567", "AAPL", 100)
+    val ibm = position("DU1234567", "IBM", 5)
+    val otherAccount = position("DU7654321", "AAPL", 1)
+    run(aapl, ibm, otherAccount, aapl.copy(pos = Decimal(BigDecimal(120))), PositionEnd).map(result =>
+      expect.same(Right(List(aapl.copy(pos = Decimal(BigDecimal(120))), ibm, otherAccount)), result)
+    )
+  }
+
+  test("the positions stream fails on a TWS error without request id, but not on notices") {
+    for
+      failed <- run(ErrorDetail(-1, 321, "Error validating request", ""), PositionEnd)
+      notices <- run(ErrorDetail(-1, 2104, "Market data farm connection is OK", ""),
+        ErrorDetail(-1, 1102, "Connectivity restored - data maintained", ""), ErrorDetail(7, 202, "Order cancelled", ""),
+        position("DU1234567", "AAPL", 100), PositionEnd)
+    yield expect.same(Left(Portfolio.RequestFailed("positions", 321, "Error validating request")), failed) and
+      expect.same(Right(List("AAPL")), notices.map(_.map(_.contract.symbol)))
+  }
+
+  test("a positions request stopped before positionEnd keeps the lock until that positionEnd or the wait is over") {
+    for
+      noEnd <- endlessFakeClient(position("DU1234567", "AAPL", 100))
+      waited <- noEnd.reqPositions(300.millis).compile.toList.timeout(100.millis).attempt.timed
+      // releasing took the stale-end wait, and the lock is free again afterwards
+      free <- noEnd.positionsLock.lock.surround(IO.unit).timeout(1.second).attempt
+      withEnd <- endlessFakeClient(position("DU1234567", "AAPL", 100), PositionEnd)
+      quick <- withEnd.reqPositions(5.seconds).compile.toList.timed
+    yield expect(waited._2.isLeft) and expect(waited._1 >= 300.millis) and expect(free.isRight) and
+      expect(quick._1 < 2.seconds) and expect.same(List("AAPL"), quick._2.map(_.contract.symbol))
+  }
 
   test("the positions stream fails on an unreadable position, but not on other unreadable messages") {
     for

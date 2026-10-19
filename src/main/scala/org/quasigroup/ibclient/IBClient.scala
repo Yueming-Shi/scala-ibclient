@@ -164,12 +164,21 @@ trait IBClient[F[_]: Async]:
     )
 
   /** The positions of every account this TWS session manages, as a stream that completes when TWS has sent them all
-    * (positionEnd). When the stream ends or is stopped, the subscription is cancelled (cancelPositions). Fails if a
-    * position cannot be read or the connection is lost. Concurrent calls wait for each other.
+    * (positionEnd). The positions are emitted together once the list is complete, one per account and instrument
+    * (the latest, if TWS sent an update while listing). When the stream ends or is stopped, the subscription is
+    * cancelled (cancelPositions). Fails if a position cannot be read, on a TWS error and when the connection is lost.
+    * Concurrent calls wait for each other; if one is stopped before positionEnd arrived, the next one also waits (at
+    * most `staleEndWait`) for that late positionEnd, so it cannot end the next list early.
     */
-  def reqPositions: Stream[F, PositionMsg] =
-    Stream.resource(positionsLock.lock) >>
-      requestThrough[ReqPositions, PositionMsg](ReqPositions())(Portfolio.positions).onFinalize(cancelPositions)
+  def reqPositions: Stream[F, PositionMsg] = reqPositions(Portfolio.DefaultStaleEndWait)
+
+  def reqPositions(staleEndWait: FiniteDuration): Stream[F, PositionMsg] =
+    val awaitStaleEnd =
+      subscribe.use(_.collectFirst { case PositionEnd => () }.compile.drain).timeout(staleEndWait).attempt.void
+    Stream.resource(positionsLock.lock) >> Stream.eval(cats.effect.Ref.of[F, Boolean](false)).flatMap { ended =>
+      requestThrough[ReqPositions, PositionMsg](ReqPositions())(Portfolio.positions(ended.set(true)))
+        .onFinalize(cancelPositions >> ended.get.flatMap(if _ then Async[F].unit else awaitStaleEnd))
+    }
 
   def cancelPositions: F[Unit] =
     requestOnly[CancelPositions](CancelPositions())
