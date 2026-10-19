@@ -279,17 +279,22 @@ TWS updates it (about once a second while it changes).
 
 - `reqPnL(requestId, account)` streams the account's daily, unrealized and realized profit and loss (optionally
   for one model, `modelCode`).
-- `reqPnLSingle(requestId, account, instrumentId)` streams the same for one position, plus its size and market
-  value.
+- `reqPnLSingle(requestId, account, contractId)` streams the same for one position (identified by its IB contract
+  id, `conId`), plus its size and market value. An optional model code can be given, the same way as for `reqPnL`.
 - TWS sends a special "unset" number (the largest possible number) for a value it does not have yet, for example
   the realized PnL before any trade today; `ProfitAndLoss.known(value)` tells whether a value is real.
 - The streams never end by themselves; when the program stops one, the library cancels the request
   (`cancelPnL` / `cancelPnLSingle`). They fail if TWS reports an error for the request, if one of its updates
   cannot be read, or if the connection is lost. Warnings and other requests' errors do not affect them.
 
+**Fixes made after review:** the requirements used to say "instrumentId" instead of the IB contract id (`conId`);
+the decoder tests now also cover the versions between 129 and 134, where TWS sends the unrealized PnL but not yet
+the realized one.
+
 **How we check it (unit tests, no TWS needed):** the four request messages are compared with the TWS API format
-(these have no message version); canned PnL messages are decoded for server version 177 and for an older server
-without unrealized and realized PnL, and single-position PnL decodes; each stream keeps only its own updates and
+(these have no message version); canned PnL messages are decoded for server version 177, for an older server (128)
+without unrealized and realized PnL, and for versions 129–134 (unrealized only), and single-position PnL decodes
+the same way; each stream keeps only its own updates and
 cancels when stopped; the stream fails on its own errors and unreadable updates (not on warnings or other
 requests') and on connection loss. An integration test (read only, skipped without the paper TWS on port 7497)
 waits for the paper account's first PnL update and prints only which values TWS knows, not the amounts.

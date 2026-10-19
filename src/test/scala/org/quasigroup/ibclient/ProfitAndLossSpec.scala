@@ -44,6 +44,21 @@ object ProfitAndLossSpec extends SimpleIOSuite:
     decodeWith(128, "94", "9", "12.5").map(msg => expect.same(PnL(9, 12.5, Double.MaxValue, Double.MaxValue), msg))
   }
 
+  test("pnl from server versions 129–134 has unrealized PnL but no realized PnL") {
+    decodeWith(129, "94", "9", "12.5", "-3.25").map(msg =>
+      expect.same(PnL(9, 12.5, -3.25, Double.MaxValue), msg)
+    )
+  }
+
+  test("pnlSingle from server versions 129–134 has unrealized PnL but no realized PnL") {
+    decodeWith(129, "95", "10", "100", "12.5", "75.0", "15100.0").map {
+      case p: PnLSingle =>
+        expect.same((10, BigDecimal(100), 12.5, 75.0, Double.MaxValue, 15100.0),
+          (p.reqId, p.pos.value, p.dailyPnL, p.unrealizedPnL, p.realizedPnL, p.value))
+      case other => failure(s"unexpected $other")
+    }
+  }
+
   test("pnlSingle decodes (server version 177)") {
     decodeWith(177, "95", "10", "100", "12.5", "75.0", "0.0", "15100.0").map {
       case p: PnLSingle =>
