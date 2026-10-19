@@ -60,6 +60,17 @@ by field with the TWS API format; canned tickPrice / tickSize / tickString / tic
 error messages are decoded from raw bytes; the tick stream keeps only its own ticker, ends at the snapshot end,
 fails on errors, and cancels the subscription when stopped. One integration test (skipped without TWS) streams three delayed price/size ticks for IBM from the paper account; if TWS only sends meta replies or times out (delayed MD disabled), the test is ignored with a note to enable delayed market data (error 10168).
 
+## 2b. Contract details
+
+**Why:** to look up the exact IB contract for a symbol (for example the front-month ES future) before asking for market data or placing an order.
+
+**What it does:**
+
+- `reqContractDetails(reqId, contract)` asks TWS for every contract that matches the partial description (symbol, security type, exchange, currency, and optional expiry) and returns a stream of full contract details. The stream ends when TWS sends the end marker for that request.
+- It fails with an error if TWS reports an error for the request (for example "No security definition"), if a reply cannot be read, or if the connection is lost. Warnings and other requests' errors do not affect it.
+
+**How we check it (unit tests, no TWS needed):** the request message is compared with the TWS API format (msg 9, version 8); the stream keeps only its own request's details up to its own end, and fails on its own errors. An ES front-month probe (paper TWS) is used when checking market data for the sample strategy.
+
 ## 3. Open orders
 
 **Why:** to see which orders are still working (not yet filled or cancelled) on the account.

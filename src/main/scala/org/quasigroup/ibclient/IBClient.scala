@@ -148,6 +148,14 @@ trait IBClient[F[_]: Async]:
       Executions.reports(reqId, commissionWait)
     )
 
+  /** Ask TWS for the full contract details that match contract (for example every ES future month).
+    * Completes when TWS sends contractDetailsEnd for this request id.
+    */
+  def reqContractDetails(reqId: Int, contract: Contract): Stream[F, ContractDetails] =
+    requestThrough[ReqContractDetails, ContractDetails](ReqContractDetails(reqId = reqId, contract = contract))(
+      ContractLookup.details(reqId)
+    )
+
   def reqMarketDataType(marketDataType: MktDataType): F[Unit] =
     requestOnly[ReqMarketDataType](ReqMarketDataType(marketDataType = marketDataType))
 
