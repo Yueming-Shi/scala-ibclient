@@ -1,18 +1,20 @@
 package org.quasigroup.ibclient.request.writers
 
 import org.quasigroup.ibclient.IBClient
+import org.quasigroup.ibclient.IBClient.MIN_SERVER_VER_SYNT_REALTIME_BARS
 
 import org.quasigroup.ibclient.types.*
+import org.quasigroup.ibclient.types.TypesCodec.given
 import org.quasigroup.ibclient.encoder.Encoder.{*, given}
 import org.quasigroup.ibclient.request.RequestMsg.ReqHistoricalData
-
-import scala.collection.mutable
 
 object ReqHistoricalDataWriter {
   def apply(a: ReqHistoricalData)(using serverVersion: IBClient.ServerVersion): EncoderState =
     for
       _ <- write(a.msgId)
-      _ <- write(a.version)
+      _ <-
+        if serverVersion >= MIN_SERVER_VER_SYNT_REALTIME_BARS then writeNothing
+        else write(a.version)
       _ <- write(a.tickerId)
       _ <- ContractWriter(a.contract)
       _ <- write(a.contract.includeExpired)
@@ -37,7 +39,9 @@ object ReqHistoricalDataWriter {
             }
           yield ()
         else writeNothing
-      _ <- write(a.keepUpToDate)
+      _ <-
+        if serverVersion >= MIN_SERVER_VER_SYNT_REALTIME_BARS then write(a.keepUpToDate)
+        else writeNothing
       _ <- write(a.chartOptions)
     yield ()
 }
