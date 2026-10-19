@@ -217,7 +217,7 @@ object IBSocketClientCats:
           e =>
             Console[F]
               .errorln(s"unreadable message ${fields.mkString("[", ",", "]")}: $e")
-              .as(Unreadable(fields.toList, e.toString)),
+              .as(Unreadable(fields.toList, e.toString, summon[IBClient.ServerVersion].toInt)),
           _.pure[F]
         )
     )

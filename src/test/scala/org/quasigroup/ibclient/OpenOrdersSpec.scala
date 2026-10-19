@@ -145,7 +145,7 @@ object OpenOrdersSpec extends SimpleIOSuite:
     val broken = Array("5", "7", "265598", "AAPL", "NOT_A_SEC_TYPE")
     val good = Array("53", "1")
     Stream(broken, good).through(IBSocketClientCats.decodeOrReport[IO]).compile.toList.map {
-      case List(Unreadable(fields, _), OpenOrderEnd) => expect.same(broken.toList, fields)
+      case List(Unreadable(fields, _, 176), OpenOrderEnd) => expect.same(broken.toList, fields)
       case other                                      => failure(s"unexpected $other")
     }
   }
@@ -153,7 +153,7 @@ object OpenOrdersSpec extends SimpleIOSuite:
   test("the open orders stream fails instead of returning an incomplete list") {
     for
       order <- decodeWith(176, openOrderFields(176)).map(_.collect { case o: OpenOrder => o }.head)
-      client <- fakeClient(order, Unreadable(List("5", "8", "x"), "boom"), OpenOrderEnd)
+      client <- fakeClient(order, Unreadable(List("5", "8", "x"), "boom", 176), OpenOrderEnd)
       result <- client.reqOpenOrders.compile.toList.attempt
     yield expect.same(Left(Orders.UnreadableOrder(List("5", "8", "x"), "boom")), result)
   }
@@ -161,7 +161,7 @@ object OpenOrdersSpec extends SimpleIOSuite:
   test("unreadable messages of other kinds do not affect the open orders stream") {
     for
       order <- decodeWith(176, openOrderFields(176)).map(_.collect { case o: OpenOrder => o }.head)
-      client <- fakeClient(order, Unreadable(List("1", "6", "x"), "boom"), OpenOrderEnd)
+      client <- fakeClient(order, Unreadable(List("1", "6", "x"), "boom", 176), OpenOrderEnd)
       result <- client.reqOpenOrders.compile.toList
     yield expect.same(List(7), result.map(_.orderId))
   }

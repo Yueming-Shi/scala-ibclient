@@ -12,6 +12,8 @@ import cats.effect.IO
 import fs2.Stream
 import weaver.SimpleIOSuite
 
+import scala.concurrent.duration.*
+
 /** Unit tests (no TWS needed) for executions: reqExecutions encoding, execDetails / execDetailsEnd /
   * commissionReport decoding and the executions stream.
   */
@@ -103,13 +105,14 @@ object ExecutionsSpec extends SimpleIOSuite:
       fill(5, "c.01"),
       ExecDetailsEnd(6),
       ExecDetailsEnd(5),
-      fill(5, "late.01")
+      fill(5, "late.01"), // fills after the end marker are not part of the reply
+      commission("c.01") // a commission report after the end marker still is
     )
     for
       client <- fakeClient(msgs*)
       reports <- client.reqExecutions(5).compile.toList
       sent <- client.sent.get
-    yield expect.same(List(fill(5, "a.01"), commission("a.01"), fill(5, "c.01")), reports) and
+    yield expect.same(List(fill(5, "a.01"), commission("a.01"), fill(5, "c.01"), commission("c.01")), reports) and
       expect.same(Vector(List("7", "3", "5", "0", "", "", "", "", "", "")), sent)
   }
 
@@ -121,19 +124,62 @@ object ExecutionsSpec extends SimpleIOSuite:
     yield expect.same(Left(Executions.RequestFailed(5, 321, "Error validating request")), result)
   }
 
-  test("the executions stream fails on an unreadable fill or commission, but not on other unreadable messages") {
-    def run(msgs: ResponseMsg*) = Stream.emits(msgs).covary[IO].through(Executions.reports(5)).compile.toList.attempt
+  private def run(msgs: ResponseMsg*) =
+    Stream.emits(msgs).covary[IO].through(Executions.reports(5)).compile.toList.attempt
+
+  test("the executions stream fails on an unreadable fill or commission of its own, not on other messages") {
     for
-      other <- run(Unreadable(List("1", "6", "x"), "boom"), fill(5, "a.01"), ExecDetailsEnd(5))
-      badFill <- run(Unreadable(List("11", "5", "x"), "boom"), ExecDetailsEnd(5))
-      badCommission <- run(Unreadable(List("59", "1", "x"), "boom"), ExecDetailsEnd(5))
+      other <- run(Unreadable(List("1", "6", "x"), "boom", 176), fill(5, "a.01"), ExecDetailsEnd(5))
+      badFill <- run(Unreadable(List("11", "5", "x"), "boom", 176), ExecDetailsEnd(5))
+      oldServerFill <- run(Unreadable(List("11", "10", "5", "x"), "boom", 130), ExecDetailsEnd(5))
+      badCommission <- run(fill(5, "a.01"), Unreadable(List("59", "1", "a.01", "x"), "boom", 176), ExecDetailsEnd(5))
     yield expect.same(Right(List(fill(5, "a.01"))), other) and
       expect.same(Left(Executions.Unreadable(5, List("11", "5", "x"), "boom")), badFill) and
-      expect(badCommission.isLeft)
+      expect(oldServerFill.isLeft) and expect(badCommission.isLeft)
+  }
+
+  test("unreadable fills of other requests and commissions of other fills do not fail the executions stream") {
+    for
+      result <- run(
+        Unreadable(List("11", "6", "x"), "boom", 176),
+        Unreadable(List("11", "10", "6", "x"), "boom", 130),
+        fill(5, "a.01"),
+        Unreadable(List("59", "1", "z.01", "x"), "boom", 176),
+        ExecDetailsEnd(5)
+      )
+    yield expect.same(Right(List(fill(5, "a.01"))), result)
+  }
+
+  test("commission reports arriving after the end marker are kept, and the stream completes once all arrived") {
+    val msgs = Stream(fill(5, "a.01"), ExecDetailsEnd(5), commission("a.01")) ++ Stream.never[IO]
+    msgs
+      .through(Executions.reports(5, commissionWait = 1.hour))
+      .compile
+      .toList
+      .timeout(5.seconds)
+      .map(reports => expect.same(List(fill(5, "a.01"), commission("a.01")), reports))
+  }
+
+  test("the executions stream stops waiting for missing commission reports after the commission wait") {
+    val msgs = Stream(fill(5, "a.01"), ExecDetailsEnd(5)) ++ Stream.never[IO]
+    msgs
+      .through(Executions.reports(5, commissionWait = 100.millis))
+      .compile
+      .toList
+      .timeout(5.seconds)
+      .map(reports => expect.same(List(fill(5, "a.01")), reports))
+  }
+
+  test("an empty executions reply completes at the end marker without waiting") {
+    (Stream(ExecDetailsEnd(5)) ++ Stream.never[IO])
+      .through(Executions.reports(5, commissionWait = 1.hour))
+      .compile
+      .toList
+      .timeout(5.seconds)
+      .map(reports => expect(reports.isEmpty))
   }
 
   test("the executions stream fails instead of stalling when the connection is lost") {
-    def run(msgs: ResponseMsg*) = Stream.emits(msgs).covary[IO].through(Executions.reports(5)).compile.toList.attempt
     for
       lost <- run(fill(5, "a.01"), ErrorDetail(-1, 1100, "Connectivity lost", ""))
       closed <- run(fill(5, "a.01"), ConnectionClosed)

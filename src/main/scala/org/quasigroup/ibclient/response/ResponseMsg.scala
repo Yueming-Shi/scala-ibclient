@@ -380,5 +380,7 @@ enum ResponseMsg:
 
   case Skip extends ResponseMsg
 
-  /** A message TWS sent that could not be decoded (kept so request streams can fail instead of missing data). */
-  case Unreadable(fields: List[String], reason: String) extends ResponseMsg
+  /** A message TWS sent that could not be decoded (kept so request streams can fail instead of missing data), with the
+    * server version it was read with (it decides which fields the message has).
+    */
+  case Unreadable(fields: List[String], reason: String, serverVersion: Int) extends ResponseMsg

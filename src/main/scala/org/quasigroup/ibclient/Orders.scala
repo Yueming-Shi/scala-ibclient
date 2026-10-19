@@ -20,7 +20,7 @@ object Orders:
   def openOrders[F[_]: RaiseThrowable]: Pipe[F, ResponseMsg, OpenOrder] =
     _.takeWhile(_ != OpenOrderEnd).flatMap {
       case order: OpenOrder                                                    => Stream.emit(order)
-      case Unreadable(fields, reason) if fields.headOption.contains(OpenOrderMsgId) =>
+      case Unreadable(fields, reason, _) if fields.headOption.contains(OpenOrderMsgId) =>
         Stream.raiseError[F](UnreadableOrder(fields, reason))
       case ConnectionClosed => Stream.raiseError[F](StatusConnectionLost("TWS closed the connection"))
       case _                => Stream.empty
@@ -44,7 +44,7 @@ object Orders:
   def statuses[F[_]: RaiseThrowable]: Pipe[F, ResponseMsg, OrderStatusMsg] =
     _.flatMap {
       case status: OrderStatusMsg => Stream.emit(status)
-      case Unreadable(fields, reason) if fields.headOption.contains(OrderStatusMsgId) =>
+      case Unreadable(fields, reason, _) if fields.headOption.contains(OrderStatusMsgId) =>
         Stream.raiseError[F](UnreadableOrder(fields, reason))
       case ErrorDetail(-1, code, msg, _) if MarketData.isConnectionLoss(code) =>
         Stream.raiseError[F](StatusConnectionLost(s"[$code] $msg"))

@@ -103,8 +103,8 @@ object OrderStatusSpec extends SimpleIOSuite:
   }
 
   test("status streams fail on an unreadable order status, but not on other unreadable messages") {
-    val other = Unreadable(List("1", "6", "x"), "boom")
-    val broken = Unreadable(List("3", "7", "x"), "boom")
+    val other = Unreadable(List("1", "6", "x"), "boom", 176)
+    val broken = Unreadable(List("3", "7", "x"), "boom", 176)
     for
       ok <- Stream(fill(0), other, fill(1)).covary[IO].through(Orders.statuses).compile.toList
       failed <- Stream(fill(0), broken, fill(1)).covary[IO].through(Orders.statuses).compile.toList.attempt

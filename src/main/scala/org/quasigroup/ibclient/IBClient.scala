@@ -20,7 +20,7 @@ import cats.effect.syntax.all.*
 import cats.syntax.all.*
 import fs2.{Pipe, Stream}
 
-import scala.concurrent.duration.DurationInt
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.reflect.ClassTag
 
 trait IBClient[F[_]: Async]:
@@ -120,12 +120,18 @@ trait IBClient[F[_]: Async]:
     * stream that completes when TWS has sent them all. Fails on a TWS error for `reqId`, on an unreadable fill or
     * commission report and when the connection is lost.
     *
-    * A commission report that TWS sends only after the end of the reply is not part of the stream. An execution id
-    * ending in a higher number (e.g. ".02" instead of ".01") corrects an earlier one with the same start.
+    * Commission reports may arrive after TWS's end-of-executions marker: the stream then waits for the missing ones, at
+    * most `commissionWait` after the marker, and completes as soon as every execution has its commission report.
+    * An execution id ending in a higher number (e.g. ".02" instead of ".01") corrects an earlier one with the same
+    * start.
     */
-  def reqExecutions(reqId: Int, filter: ExecutionFilter = ExecutionFilter()): Stream[F, Executions.Report] =
+  def reqExecutions(
+      reqId: Int,
+      filter: ExecutionFilter = ExecutionFilter(),
+      commissionWait: FiniteDuration = Executions.DefaultCommissionWait
+  ): Stream[F, Executions.Report] =
     requestThrough[ReqExecutions, Executions.Report](ReqExecutions(reqId = reqId, filter = filter))(
-      Executions.reports(reqId)
+      Executions.reports(reqId, commissionWait)
     )
 
   def reqMarketDataType(marketDataType: MktDataType): F[Unit] =
@@ -194,6 +200,7 @@ object IBClient:
     def >=(otherVersion: ServerVersion): Boolean = version >= otherVersion
     def ==(otherVersion: ServerVersion): Boolean = version == otherVersion
     def <(otherVersion: ServerVersion): Boolean = version < otherVersion
+    def toInt: Int = version
 
   object ServerVersion:
     def apply(value: Int): ServerVersion = value

@@ -135,10 +135,15 @@ narrowed down by a filter, and get the answer as a list that ends by itself.
   side, quantity and price, the order's permanent id, the running total and average price, and whether the fill
   added or removed liquidity.
 - The commission IB charged for an execution comes as a separate "commission report" (amount, currency,
-  realized profit/loss) and is passed on right after it when TWS has it. A commission report that TWS only sends
-  after the list has ended is not included.
-- The list ends when TWS says it is complete ("executions end"). It fails with an error if TWS reports an error
-  for the request, if an execution or commission report cannot be read, or if the connection is lost.
+  realized profit/loss) and is passed on when it arrives. TWS can send commission reports after it says the list
+  of executions is complete, so the list then waits for the missing ones, at most 2 seconds by default
+  (adjustable), and ends as soon as every execution has its commission report.
+- The list of executions ends when TWS says it is complete ("executions end"). It fails with an error if TWS
+  reports an error for the request, if one of its executions or their commission reports cannot be read, or if
+  the connection is lost. An unreadable message that belongs to another request does not affect it.
+- Not yet supported: the newest TWS versions (server version 178 and later) add fields to executions, such as
+  a "pending price revision" flag. This library tells TWS it speaks at most version 177, so TWS does not send
+  them.
 - This only reads information; it never places or changes an order.
 
 **Fixes made along the way:** the execution message was read with a "version" field that recent TWS versions no
@@ -149,6 +154,7 @@ an unknown liquidity value no longer crashes the decoder.
 **How we check it (unit tests, no TWS needed):** the request is compared with the TWS API format with and without
 a filter; canned execution messages are decoded for a recent server (no version field, with liquidity) and an
 older one (with a version field); "executions end" and commission reports decode; the stream keeps only its own
-executions and their commission reports, ends at "executions end", and fails on a TWS error, an unreadable
-execution or commission report, and connection loss. An integration test (read only, skipped without the paper
+executions and their commission reports, keeps commission reports that arrive after "executions end", ends as
+soon as all of them arrived or after the wait, and fails on a TWS error, an unreadable execution or commission
+report of its own (but not of another request), and connection loss. An integration test (read only, skipped without the paper
 TWS on port 7497) lists today's executions.
