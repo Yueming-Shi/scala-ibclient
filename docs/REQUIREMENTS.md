@@ -52,3 +52,29 @@ by field with the TWS API format; canned tickPrice / tickSize / tickString / tic
 error messages are decoded from raw bytes; the tick stream keeps only its own ticker, ends at the snapshot end,
 fails on errors, and cancels the subscription when stopped. One integration test (skipped without TWS) streams
 three delayed ticks for IBM from the paper account.
+
+## 3. Open orders
+
+**Why:** to see which orders are still working (not yet filled or cancelled) on the account.
+
+**What it does:**
+
+- `reqOpenOrders` lists the open orders placed by this program; `reqAllOpenOrders` lists the open orders of
+  every program connected to TWS and of TWS itself.
+- Each one arrives as an "open order": the instrument, the order details (buy/sell, quantity, order type, limit
+  price, time in force, account, ...) and its current state (for example "PreSubmitted").
+- The stream finishes by itself when TWS says the list is complete ("open order end").
+- If TWS ever sends a message the library cannot read, the live connection reports it and skips it instead of
+  stopping.
+
+**Fixes made along the way:** the open order message was read with a "version" field that recent TWS versions
+no longer send, which shifted every field; the two "condition" flags were read even when an order has no
+conditions; several multi-part values (basis points, soft dollar tier, algo parameters, delta-neutral contract,
+pegged-to-benchmark details) were read as a single field; "unset" numbers were confused with zero; values such as
+an unset order type ("None"), hedge type letters, unknown algo names, time in force and security type no longer
+crash the decoder.
+
+**How we check it (unit tests, no TWS needed):** the two request messages are compared with the TWS API format;
+a canned open order message (laid out like TWS 10.19+) is decoded for server versions 176 and 177, with and
+without a price condition and with an algo strategy, and the last fields are checked so any misalignment shows;
+the open orders stream ends at "open order end"; an unreadable message is skipped.

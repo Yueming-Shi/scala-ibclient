@@ -70,6 +70,14 @@ trait IBClient[F[_]: Async]:
   def cancelMktData(tickerId: Int): F[Unit] =
     requestOnly[CancelMktData](CancelMktData(tickerId = tickerId))
 
+  /** The open orders placed by this client, as a stream that completes when TWS has sent them all. */
+  def reqOpenOrders: Stream[F, OpenOrder] =
+    requestThrough[ReqOpenOrders, OpenOrder](ReqOpenOrders())(Orders.openOrders)
+
+  /** The open orders of every API client and of TWS itself, as a stream that completes when TWS has sent them all. */
+  def reqAllOpenOrders: Stream[F, OpenOrder] =
+    requestThrough[ReqAllOpenOrders, OpenOrder](ReqAllOpenOrders())(Orders.openOrders)
+
   /** Chooses real-time, frozen, delayed or delayed-frozen market data for later requests. */
   def reqMarketDataType(marketDataType: MktDataType): F[Unit] =
     requestOnly[ReqMarketDataType](ReqMarketDataType(marketDataType = marketDataType))

@@ -59,11 +59,13 @@ object Decoder {
   inline def read[T: Decoder]: DecoderState[T] =
     StateT(array => summon[Decoder[T]](array).map((if array.isEmpty then array else array.tail) -> _))
 
+  /** Like the TWS API's readDoubleMax: an empty field means "unset" (Double.MaxValue); "0" stays 0. */
   inline def readDoubleMax: DecoderState[Double] =
-    read[Double].map(value => if value == 0 then Double.MaxValue else value)
+    read[String].flatMapF(value => if value.isEmpty then Right(Double.MaxValue) else Try(value.toDouble).toEither)
 
+  /** Like the TWS API's readIntMax: an empty field means "unset" (Int.MaxValue); "0" stays 0. */
   inline def readIntMax: DecoderState[Int] =
-    read[Int].map(value => if value == 0 then Int.MaxValue else value)
+    read[String].flatMapF(value => if value.isEmpty then Right(Int.MaxValue) else Try(value.toInt).toEither)
 
   inline given derived[T](using m: Mirror.Of[T]): Decoder[T] =
     lazy val encoders = summonAllDecoder[m.MirroredElemTypes]

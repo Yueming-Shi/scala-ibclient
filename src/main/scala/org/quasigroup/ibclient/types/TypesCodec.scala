@@ -87,7 +87,7 @@ object TypesCodec:
     )
 
   inline given Decoder[AlgoStrategy] =
-    summon[Decoder[String]].map(str => if str.isEmpty then AlgoStrategy.None else AlgoStrategy.valueOf(str))
+    summon[Decoder[String]].map(str => AlgoStrategy.values.find(_.toString == str).getOrElse(AlgoStrategy.None))
 
   inline given Encoder[HedgeType] =
     summon[Encoder[String]].contramap(hedgeType =>
@@ -95,8 +95,11 @@ object TypesCodec:
       else hedgeType.toString.head.toString
     )
 
+  // TWS sends the first letter: D(elta), B(eta), F(x), P(air)
   inline given Decoder[HedgeType] =
-    summon[Decoder[String]].map(str => if str.isEmpty then HedgeType.None else HedgeType.valueOf(str))
+    summon[Decoder[String]].map(str =>
+      HedgeType.values.find(t => t != HedgeType.None && str.nonEmpty && t.toString.head == str.head).getOrElse(HedgeType.None)
+    )
 
   inline given Decoder[Method] =
     summon[Decoder[String]].map(value => Method.values.find(_.toString == value).getOrElse(Method.None))
@@ -114,14 +117,18 @@ object TypesCodec:
     summon[Encoder[String]].contramap(_.toString)
 
   inline given Decoder[TimeInForce] =
-    summon[Decoder[String]].map(TimeInForce.valueOf)
+    summon[Decoder[String]].flatMap(str =>
+      TimeInForce.values.find(_.toString == str).toRight(new Exception(s"unknown time in force: $str"))
+    )
 
   inline given Encoder[Order.Type] =
     summon[Encoder[String]].contramap(_.apiString)
 
+  // TWS sends "" or "None" for an unset order type (e.g. adjustedOrderType)
   inline given Decoder[Order.Type] =
     summon[Decoder[String]].flatMap(str =>
-      Order.Type.values.find(_.apiString == str).toRight(new Exception("unknown order type"))
+      if str.isEmpty || str == "None" then Right(Order.Type.None)
+      else Order.Type.values.find(_.apiString == str).toRight(new Exception(s"unknown order type: $str"))
     )
 
   inline given Decoder[Order.Status] =
@@ -134,7 +141,10 @@ object TypesCodec:
     summon[Decoder[Int]].map(index => TickType.values.find(_.index == index).getOrElse(TickType.UNKNOWN))
 
   inline given Decoder[SecType] =
-    summon[Decoder[String]].map(str => SecType.valueOf(str.replace('+', '_')))
+    summon[Decoder[String]].flatMap(str =>
+      if str.isEmpty then Right(SecType.None)
+      else SecType.values.find(_.toString == str.replace('+', '_')).toRight(new Exception(s"unknown sec type: $str"))
+    )
 
   inline given Encoder[SecType] =
     summon[Encoder[String]].contramap(_.toString.replace('_', '+'))
@@ -165,7 +175,7 @@ object TypesCodec:
     summon[Encoder[String]].contramap(_.toString)
 
   inline given Decoder[Action] =
-    summon[Decoder[String]].map(Action.valueOf)
+    summon[Decoder[String]].flatMap(str => Action.values.find(_.toString == str).toRight(new Exception(s"unknown action: $str")))
 
   inline given Encoder[AuctionStrategy] =
     summon[Encoder[Int]].contramap(_.ordinal)

@@ -19,6 +19,7 @@ import org.quasigroup.ibclient.response.ResponseMsg
 import org.quasigroup.ibclient.response.ResponseMsg.*
 import org.quasigroup.ibclient.response.MsgDecoders.{*, given}
 
+import cats.Applicative
 import cats.effect.*
 import cats.effect.std.{Console, Mutex, Queue}
 import cats.effect.syntax.all.*
@@ -71,7 +72,7 @@ class IBSocketClientCats[F[_]: Async: Console](
           socket.reads
             .through(frames.toPipeByte)
             .evalTap(strs => Console[F].println(strs.mkString("[", ",", "]")))
-            .evalMap(decode(_).liftTo[F])
+            .through(decodeOrSkip)
             .evalTap(Console[F].println)
             .takeThrough(_ != ConnectionClosed)
             .evalTap(msgQueue.offer)
@@ -198,6 +199,18 @@ object IBSocketClientCats:
             )
           )
     yield rawMessage
+
+  /** Decodes messages; one that cannot be read is reported on stderr and skipped instead of stopping the connection. */
+  def decodeOrSkip[F[_]: Applicative: Console](using IBClient.ServerVersion): Pipe[F, Array[String], ResponseMsg] =
+    _.evalMapFilter(fields =>
+      Either
+        .catchNonFatal(decode(fields))
+        .flatten
+        .fold(
+          e => Console[F].errorln(s"skipping unreadable message ${fields.mkString("[", ",", "]")}: $e").as(None),
+          _.some.pure[F]
+        )
+    )
 
   /** Decodes raw TWS bytes into response messages. */
   def responses[F[_]: RaiseThrowable](using IBClient.ServerVersion): Pipe[F, Byte, ResponseMsg] =

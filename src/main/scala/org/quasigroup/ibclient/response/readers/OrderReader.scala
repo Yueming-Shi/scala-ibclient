@@ -12,6 +12,42 @@ import cats.syntax.option.*
 
 object OrderReader {
 
+  // Multi-field values are read field by field: `read[T]` always consumes exactly one field.
+  private val readTagValue: DecoderState[TagValue] =
+    for
+      tag <- read[String]
+      value <- read[String]
+    yield TagValue(tag, value)
+
+  private val readDeltaNeutralContract: DecoderState[DeltaNeutralContract] =
+    for
+      conId <- read[Int]
+      delta <- read[Double]
+      price <- read[Double]
+    yield DeltaNeutralContract(conId, delta, price)
+
+  private val readSoftDollarTier: DecoderState[SoftDollarTier] =
+    for
+      name <- read[String]
+      value <- read[String]
+      displayName <- read[String]
+    yield SoftDollarTier(name, value, displayName)
+
+  private val readPegToBench: DecoderState[Order.PegToBenchParams] =
+    for
+      referenceContractId <- read[Int]
+      isPeggedChangeAmountDecrease <- read[Boolean]
+      peggedChangeAmount <- read[Double]
+      referenceChangeAmount <- read[Double]
+      referenceExchangeId <- read[String]
+    yield Order.PegToBenchParams(
+      referenceContractId,
+      isPeggedChangeAmountDecrease,
+      peggedChangeAmount,
+      referenceChangeAmount,
+      referenceExchangeId
+    )
+
   private def readConditions(using serverVersion: IBClient.ServerVersion): DecoderState[Option[Order.ConditionParams]] =
     if serverVersion >= MIN_SERVER_VER_PEGGED_TO_BENCHMARK then
       for
@@ -65,9 +101,15 @@ object OrderReader {
                   yield PercentChangeCondition(isConjunctionConnection, isMore, changePercent, conId, exchange)
           yield orderCondition :: list
         }
-        conditionsIgnoreRth <- read[Boolean]
-        conditionsCancelOrder <- read[Boolean]
-      yield Order.ConditionParams(conditions.reverse, conditionsIgnoreRth, conditionsCancelOrder).some
+        // TWS only sends these two flags when there is at least one condition
+        params <-
+          if nConditions > 0 then
+            for
+              conditionsIgnoreRth <- read[Boolean]
+              conditionsCancelOrder <- read[Boolean]
+            yield Order.ConditionParams(conditions.reverse, conditionsIgnoreRth, conditionsCancelOrder).some
+          else readNothing(None)
+      yield params
     else readNothing(None)
 
   private def readOrderStateCommission(
@@ -116,16 +158,17 @@ object OrderReader {
       orderType: Order.Type
   )(using serverVersion: IBClient.ServerVersion): DecoderState[Option[Order.PegToBenchParams]] =
     if serverVersion >= MIN_SERVER_VER_PEGGED_TO_BENCHMARK then
-      if orderType == Order.Type.PEG_BENCH then read[Order.PegToBenchParams].map(_.some)
+      if orderType == Order.Type.PEG_BENCH then readPegToBench.map(_.some)
       else readNothing(None)
     else readNothing(None)
 
   private def readAlgoParams(version: Int): DecoderState[Option[Order.AlgoParams]] =
     if version >= 21 then
       for
-        algoStrategy <- read[AlgoStrategy]
+        algoName <- read[String]
+        algoStrategy = AlgoStrategy.values.find(_.toString == algoName).getOrElse(AlgoStrategy.None)
         params <-
-          if algoStrategy == AlgoStrategy.None then readNothing(Nil)
+          if algoName.isEmpty then readNothing(Nil)
           else
             for
               algoParamsCount <- read[Int]
@@ -134,18 +177,18 @@ object OrderReader {
                   .foldLeft(readNothing(List.empty[TagValue])) { (state, idx) =>
                     for
                       list <- state
-                      tagValue <- read[TagValue]
+                      tagValue <- readTagValue
                     yield tagValue :: list
                   }
             yield algoParams
-      yield Order.AlgoParams(algoStrategy, params.reverse, "").some
+      yield Option.when(algoName.nonEmpty)(Order.AlgoParams(algoStrategy, params.reverse, ""))
     else readNothing(None)
 
   private def readDeltaNeutral(version: Int): DecoderState[Option[DeltaNeutralContract]] =
     if version >= 20 then
       for
         shouldRead <- read[Boolean]
-        result <- if shouldRead then read[DeltaNeutralContract].map(_.some) else readNothing(None)
+        result <- if shouldRead then readDeltaNeutralContract.map(_.some) else readNothing(None)
       yield result
     else readNothing(None)
 
@@ -251,10 +294,21 @@ object OrderReader {
     else readNothing(None)
 
   private def readBoxOrdrParams(version: Int): DecoderState[Option[Order.BoxOrderParams]] =
-    if version >= 9 then read[Order.BoxOrderParams].map(_.some) else readNothing(None)
+    if version >= 9 then
+      for
+        startingPrice <- readDoubleMax
+        stockRefPrice <- readDoubleMax
+        delta <- readDoubleMax
+      yield Order.BoxOrderParams(startingPrice, stockRefPrice, delta).some
+    else readNothing(None)
 
   private def readPegToStkOrVolOrderParams(version: Int): DecoderState[Option[Order.PegToStkOrVolOrderParams]] =
-    if version >= 9 then read[Order.PegToStkOrVolOrderParams].map(_.some) else readNothing(None)
+    if version >= 9 then
+      for
+        stockRangeLower <- readDoubleMax
+        stockRangeUpper <- readDoubleMax
+      yield Order.PegToStkOrVolOrderParams(stockRangeLower, stockRangeUpper).some
+    else readNothing(None)
 
   private def readSmartComboRoutingParams(version: Int): DecoderState[List[TagValue]] =
     if version >= 26 then
@@ -271,7 +325,12 @@ object OrderReader {
     else readNothing(Nil)
 
   private def readBasisPoints(version: Int): DecoderState[Option[Order.BasisPoints]] =
-    if version >= 14 then read[Order.BasisPoints].map(_.some) else readNothing(None)
+    if version >= 14 then
+      for
+        value <- readDoubleMax
+        basisPointsType <- readIntMax
+      yield Order.BasisPoints(value, basisPointsType).some
+    else readNothing(None)
 
   private def readFAParams(
       version: Int
@@ -363,7 +422,8 @@ object OrderReader {
 
   def processOpenOrder(using serverVersion: IBClient.ServerVersion): DecoderState[OpenOrder] =
     for
-      version <- read[Int]
+      // since MIN_SERVER_VER_ORDER_CONTAINER TWS no longer sends a message version
+      version <- if serverVersion >= MIN_SERVER_VER_ORDER_CONTAINER then readNothing(Int.MaxValue) else read[Int]
       orderId <- read[Int]
       contract <- readContract(version)
       // read order fields
@@ -389,18 +449,18 @@ object OrderReader {
       modelCode <- read[String]
       goodTillDate <- if version >= 8 then read[String] else readNothing("")
       rule80A <- if version >= 9 then read[Rule80A] else readNothing(Rule80A.None)
-      percentOffset <- if version >= 9 then read[Double] else readNothing(Double.MaxValue)
+      percentOffset <- if version >= 9 then readDoubleMax else readNothing(Double.MaxValue)
       settlingFirm <- if version >= 9 then read[String] else readNothing("")
       shortSaleFields <- readShortSaleParams(version)
       auctionStrategy <- if version >= 9 then read[AuctionStrategy] else readNothing(AuctionStrategy.None)
       boxOrderFields <- readBoxOrdrParams(version)
       pegToStkOrVolOrderFields <- readPegToStkOrVolOrderParams(version)
-      displaySize <- if version >= 9 then read[Int] else readNothing(Int.MaxValue)
+      displaySize <- if version >= 9 then readIntMax else readNothing(Int.MaxValue)
       // skipping eOrderDecoder.readOldStyleOutsideRth();
       blockOrder <- if version >= 9 then read[Boolean] else readNothing(false)
       sweepToFill <- if version >= 9 then read[Boolean] else readNothing(false)
       allOrNone <- if version >= 9 then read[Boolean] else readNothing(false)
-      minQty <- if version >= 9 then read[Int] else readNothing(Int.MaxValue)
+      minQty <- if version >= 9 then readIntMax else readNothing(Int.MaxValue)
       ocaType <- if version >= 9 then read[OcaType] else readNothing(OcaType.None)
       _ <-
         if version >= 9 then read[Int] else readNothing(0) // eOrderDecoder.readETradeOnly(); // skip deprecated field
@@ -429,28 +489,37 @@ object OrderReader {
       randomizePrice <- if version >= 34 then read[Boolean] else readNothing(false)
       pegToBenchFields <- readPegToBenchParams(orderType)
       conditionsField <- readConditions
-      adjustedOrderType <- read[Order.Type]
-      triggerPrice <- readDoubleMax
-      trailStopPrice <- readDoubleMax
-      lmtPriceOffset <- readDoubleMax
-      adjustedStopPrice <- readDoubleMax
-      adjustedStopLimitPrice <- readDoubleMax
-      adjustedTrailingAmount <- readDoubleMax
-      adjustableTrailingUnit <- read[Int]
-      softDollarTier <- read[SoftDollarTier]
-      cashQty <- readDoubleMax
-      dontUseAutoPriceForHedge <- read[Boolean]
-      isOmsContainer <- if version >= 33 then read[Boolean] else readNothing(false)
-      discretionaryUpToLimitPrice <- read[Boolean]
-      usePriceMgmtAlgo <- read[UsePriceMgmtAlgo]
-      duration <- read[Int]
-      postToAts <- readIntMax
-      autoCancelParent <- read[Boolean]
-      minTradeQty <- readIntMax
-      minCompeteSize <- readIntMax
-      competeAgainstBestOffset <- readDoubleMax
-      midOffsetAtWhole <- readDoubleMax
-      midOffsetAtHalf <- readDoubleMax
+      adjusted = serverVersion >= MIN_SERVER_VER_PEGGED_TO_BENCHMARK
+      adjustedOrderType <- if adjusted then read[Order.Type] else readNothing(Order.Type.None)
+      triggerPrice <- if adjusted then readDoubleMax else readNothing(Double.MaxValue)
+      trailStopPrice <- if adjusted then readDoubleMax else readNothing(Double.MaxValue)
+      lmtPriceOffset <- if adjusted then readDoubleMax else readNothing(Double.MaxValue)
+      adjustedStopPrice <- if adjusted then readDoubleMax else readNothing(Double.MaxValue)
+      adjustedStopLimitPrice <- if adjusted then readDoubleMax else readNothing(Double.MaxValue)
+      adjustedTrailingAmount <- if adjusted then readDoubleMax else readNothing(Double.MaxValue)
+      adjustableTrailingUnit <- if adjusted then read[Int] else readNothing(0)
+      softDollarTier <-
+        if serverVersion >= MIN_SERVER_VER_SOFT_DOLLAR_TIER then readSoftDollarTier
+        else readNothing(SoftDollarTier("", "", ""))
+      cashQty <- if serverVersion >= MIN_SERVER_VER_CASH_QTY then readDoubleMax else readNothing(Double.MaxValue)
+      dontUseAutoPriceForHedge <-
+        if serverVersion >= MIN_SERVER_VER_AUTO_PRICE_FOR_HEDGE then read[Boolean] else readNothing(false)
+      isOmsContainer <- if serverVersion >= MIN_SERVER_VER_ORDER_CONTAINER then read[Boolean] else readNothing(false)
+      discretionaryUpToLimitPrice <-
+        if serverVersion >= MIN_SERVER_VER_D_PEG_ORDERS then read[Boolean] else readNothing(false)
+      usePriceMgmtAlgo <-
+        if serverVersion >= MIN_SERVER_VER_PRICE_MGMT_ALGO then read[UsePriceMgmtAlgo]
+        else readNothing(UsePriceMgmtAlgo.None)
+      duration <- if serverVersion >= MIN_SERVER_VER_DURATION then readIntMax else readNothing(Int.MaxValue)
+      postToAts <- if serverVersion >= MIN_SERVER_VER_POST_TO_ATS then readIntMax else readNothing(Int.MaxValue)
+      autoCancelParent <-
+        if serverVersion >= MIN_SERVER_VER_AUTO_CANCEL_PARENT then read[Boolean] else readNothing(false)
+      pegBestPegMid = serverVersion >= MIN_SERVER_VER_PEGBEST_PEGMID_OFFSETS
+      minTradeQty <- if pegBestPegMid then readIntMax else readNothing(Int.MaxValue)
+      minCompeteSize <- if pegBestPegMid then readIntMax else readNothing(Int.MaxValue)
+      competeAgainstBestOffset <- if pegBestPegMid then readDoubleMax else readNothing(Double.MaxValue)
+      midOffsetAtWhole <- if pegBestPegMid then readDoubleMax else readNothing(Double.MaxValue)
+      midOffsetAtHalf <- if pegBestPegMid then readDoubleMax else readNothing(Double.MaxValue)
     yield {
       val order =
         Order(
@@ -569,16 +638,16 @@ object OrderReader {
       modelCode <- read[String]
       goodTillDate <- if version >= 8 then read[String] else readNothing("")
       rule80A <- if version >= 9 then read[Rule80A] else readNothing(Rule80A.None)
-      percentOffset <- if version >= 9 then read[Double] else readNothing(Double.MaxValue)
+      percentOffset <- if version >= 9 then readDoubleMax else readNothing(Double.MaxValue)
       settlingFirm <- if version >= 9 then read[String] else readNothing("")
       shortSaleFields <- readShortSaleParams(version)
       auctionStrategy <- if version >= 9 then read[AuctionStrategy] else readNothing(AuctionStrategy.None)
       boxOrderFields <- readBoxOrdrParams(version)
       pegToStkOrVolOrderFields <- readPegToStkOrVolOrderParams(version)
-      displaySize <- if version >= 9 then read[Int] else readNothing(Int.MaxValue)
+      displaySize <- if version >= 9 then readIntMax else readNothing(Int.MaxValue)
       sweepToFill <- if version >= 9 then read[Boolean] else readNothing(false)
       allOrNone <- if version >= 9 then read[Boolean] else readNothing(false)
-      minQty <- if version >= 9 then read[Int] else readNothing(Int.MaxValue)
+      minQty <- if version >= 9 then readIntMax else readNothing(Int.MaxValue)
       ocaType <- if version >= 9 then read[OcaType] else readNothing(OcaType.None)
       triggerMethod <- if version >= 10 then read[TriggerMethod] else readNothing(TriggerMethod.Default)
       volOrderFields <- readVolOrderParams(version, false)
