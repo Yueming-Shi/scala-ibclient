@@ -118,6 +118,14 @@ object PositionsSpec extends SimpleIOSuite:
       expect.same(Right(List("AAPL")), notices.map(_.map(_.contract.symbol)))
   }
 
+  test("a positions request stopped before positionEnd listens for that late end from before cancelling") {
+    for
+      client <- endlessFakeClient(position("DU1234567", "AAPL", 100))
+      _ <- client.reqPositions(100.millis).compile.drain.timeout(50.millis).attempt
+      events <- client.events.get
+    yield expect.same(Vector("subscribe", "send 61", "subscribe", "send 64"), events)
+  }
+
   test("a positions request stopped before positionEnd keeps the lock until that positionEnd or the wait is over") {
     for
       noEnd <- endlessFakeClient(position("DU1234567", "AAPL", 100))

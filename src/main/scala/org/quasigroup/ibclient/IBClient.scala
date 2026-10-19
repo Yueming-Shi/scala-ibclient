@@ -176,11 +176,21 @@ trait IBClient[F[_]: Async]:
   def reqPositions: Stream[F, PositionMsg] = reqPositions(Portfolio.DefaultStaleEndWait)
 
   def reqPositions(staleEndWait: FiniteDuration): Stream[F, PositionMsg] =
-    val awaitStaleEnd =
-      subscribe.use(_.collectFirst { case PositionEnd => () }.compile.drain).timeout(staleEndWait).attempt.void
     Stream.resource(positionsLock.lock) >> Stream.eval(cats.effect.Ref.of[F, Boolean](false)).flatMap { ended =>
       requestThrough[ReqPositions, PositionMsg](ReqPositions())(Portfolio.positions(ended.set(true)))
-        .onFinalize(cancelPositions >> ended.get.flatMap(if _ then Async[F].unit else awaitStaleEnd))
+        .onFinalize(cancelAwaitingEnd(cancelPositions, ended.get, staleEndWait)(_ == PositionEnd))
+    }
+
+  /** Sends `cancel`. If the request had not seen its end marker yet (`ended`), also waits, at most `staleEndWait`, for
+    * that late marker, listening from before `cancel` is sent, so that the next request of this kind (which waits for
+    * the same lock) cannot take it for its own. A marker later than `staleEndWait` can still reach the next request.
+    */
+  private def cancelAwaitingEnd(cancel: F[Unit], ended: F[Boolean], staleEndWait: FiniteDuration)(
+      isEnd: ResponseMsg => Boolean
+  ): F[Unit] =
+    ended.flatMap {
+      case true  => cancel
+      case false => subscribe.use(msgs => cancel >> msgs.exists(isEnd).compile.drain.timeout(staleEndWait).attempt.void)
     }
 
   def cancelPositions: F[Unit] =
@@ -198,15 +208,16 @@ trait IBClient[F[_]: Async]:
       staleEndWait: FiniteDuration = Portfolio.DefaultStaleEndWait
   ): Stream[F, Portfolio.AccountUpdate] =
     val unsubscribe = requestOnly[ReqAccountUpdates](ReqAccountUpdates(subscribe = false, acctCode = account))
-    val awaitStaleEnd =
-      subscribe.use(_.collectFirst { case _: AccountDownloadEnd => () }.compile.drain).timeout(staleEndWait).attempt.void
     Stream.resource(accountUpdatesLock.lock) >> Stream.eval(cats.effect.Ref.of[F, Boolean](false)).flatMap { ended =>
       requestThrough[ReqAccountUpdates, Portfolio.AccountUpdate](ReqAccountUpdates(subscribe = true, acctCode = account))(
         Portfolio.accountUpdates(account)
       ).evalTap {
         case _: AccountDownloadEnd => ended.set(true)
         case _                     => Async[F].unit
-      }.onFinalize(unsubscribe >> ended.get.flatMap(if _ then Async[F].unit else awaitStaleEnd))
+      }.onFinalize(cancelAwaitingEnd(unsubscribe, ended.get, staleEndWait) {
+        case AccountDownloadEnd(name) => account.isEmpty || name == account
+        case _                        => false
+      })
     }
 
   /** The values and portfolio of `account` as one snapshot, up to accountDownloadEnd; then the subscription is

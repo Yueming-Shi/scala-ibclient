@@ -151,6 +151,33 @@ object AccountUpdatesSpec extends SimpleIOSuite:
       expect.same(Right(List(AccountDownloadEnd(Account))), notices)
   }
 
+  test("2100 and 2101 (account subscription ended or refused) fail the account updates stream") {
+    for
+      unsubscribed <- run(ErrorDetail(-1, 2100, "API client has been unsubscribed from account data.", ""))
+      refused <- run(ErrorDetail(-1, 2101, "Unable to subscribe to account as the following clients are subscribed", ""))
+    yield expect.same(
+      Left(Portfolio.RequestFailed("account updates", 2100, "API client has been unsubscribed from account data.")),
+      unsubscribed
+    ) and expect(refused.isLeft)
+  }
+
+  test("a subscription stopped before accountDownloadEnd listens for that late end from before unsubscribing") {
+    for
+      client <- endlessFakeClient(value("NetLiquidation", "100"))
+      _ <- client.reqAccountUpdates(Account, 100.millis).take(1).compile.drain
+      events <- client.events.get
+      // another account's late end marker does not count
+      other <- endlessFakeClient(AccountDownloadEnd("DU7654321"))
+      waited <- other.reqAccountUpdates(Account, 300.millis).compile.toList.timeout(100.millis).attempt.timed
+      finished <- fakeClient(AccountDownloadEnd(Account))
+      _ <- finished.accountSnapshot(Account)
+      finishedEvents <- finished.events.get
+    yield expect.same(Vector("subscribe", "send 6", "subscribe", "send 6"), events) and
+      expect(waited._1 >= 300.millis) and
+      // after its end marker, unsubscribing needs no extra listener
+      expect.same(Vector("subscribe", "send 6", "send 6"), finishedEvents)
+  }
+
   test("a subscription stopped before accountDownloadEnd keeps the lock until that end or the wait is over") {
     for
       noEnd <- endlessFakeClient(value("NetLiquidation", "100"))

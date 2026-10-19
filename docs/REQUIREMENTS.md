@@ -195,8 +195,8 @@ short quantities, and "position end" decodes; the stream keeps the positions up 
 subscription both at the end and when stopped early, completes for an empty account, replaces a position updated
 while listing, fails on an unreadable position (but not on other unreadable messages), on a TWS error without
 request number (but not on notices or other requests' errors) and on connection loss; a second request waits while
-one is running, and a request stopped before "position end" keeps the lock until that end arrives or the wait is
-over. An integration test (read only, skipped without the paper TWS on port 7497) lists the paper account's
+one is running, and a request stopped before "position end" listens for that end from before it cancels and keeps
+the lock until the end arrives or the wait is over. An integration test (read only, skipped without the paper TWS on port 7497) lists the paper account's
 positions and prints only how many there are.
 
 ### 6b. Account values and portfolio
@@ -218,13 +218,19 @@ snapshot of them.
   to "account download end", keeping the latest value of each name and currency and the latest line of each
   instrument, then unsubscribes. TWS sends nothing at all for an unknown account, so put a time limit on it.
 - It fails with an error if an account update cannot be read, if TWS reports an error without request number
-  (other than notices such as "market data farm connection is OK"), or if the connection is lost.
+  (other than notices such as "market data farm connection is OK"), if TWS says this program was unsubscribed
+  from the account (2100) or refused the subscription because another program follows a different account (2101),
+  or if the connection is lost.
 - TWS keeps only one account subscription per connection, so only one runs at a time; a second one waits for the
   first. If the first was stopped before its "account download end" arrived, the second one also waits for that
-  late marker (at most 2 seconds by default), so it cannot end the second snapshot too early.
+  late marker (at most 2 seconds by default), so it cannot end the second snapshot too early. The library starts
+  listening for it before it unsubscribes, so it cannot slip through in between. A marker that comes later than the
+  wait could still end the next snapshot early; this is unlikely, since TWS sends it right after the account.
 
 **Fixes made along the way:** account values were read one field off (the message version was skipped twice), so
-every account value failed to decode.
+every account value failed to decode. After review: TWS's notices 2100 and 2101 now end the subscription with an
+error instead of being ignored like other notices, and the late-marker listener (also for positions) starts before
+the cancel is sent.
 
 **How we check it (unit tests, no TWS needed):** subscribe and unsubscribe messages are compared with the TWS API
 format; canned account value, portfolio (message version 8, server version 177), update time and download end
@@ -232,6 +238,7 @@ messages are decoded; the stream keeps only its account's updates and unsubscrib
 keeps the latest value and portfolio line of each, ignores what comes after "account download end", and takes the
 account name from that marker when the account code is empty; the stream fails on an unreadable account update
 (not on other unreadable messages), on a TWS error without request number (not on notices) and on connection loss;
-subscriptions run one at a time, and one stopped before its end keeps the lock until the end arrives or the wait is
-over. An integration test (read only, skipped without the paper TWS on port 7497) takes a snapshot of the paper
+2100 and 2101 make it fail; subscriptions run one at a time, and one stopped before its end listens for that end
+from before it unsubscribes and keeps the lock until the end arrives or the wait is over (another account's end
+does not count). An integration test (read only, skipped without the paper TWS on port 7497) takes a snapshot of the paper
 account and prints only counts and the net liquidation value.

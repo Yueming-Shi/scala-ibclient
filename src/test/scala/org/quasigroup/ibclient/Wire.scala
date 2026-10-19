@@ -46,19 +46,24 @@ object Wire:
   def decodeOne(fields: String*): IO[ResponseMsg] =
     decodeAll(frame(fields*)).map(_.head)
 
-  /** A client without a socket: incoming messages are canned, sent requests are recorded as wire fields. */
+  /** A client without a socket: incoming messages are canned, sent requests are recorded as wire fields, and `events`
+    * records, in order, each subscription ("subscribe") and each sent request ("send <message id>").
+    */
   final class FakeClient(
       incoming: List[ResponseMsg],
       val sent: Ref[IO, Vector[List[String]]],
       val openOrdersLock: Mutex[IO],
       val positionsLock: Mutex[IO],
       val accountUpdatesLock: Mutex[IO],
+      val events: Ref[IO, Vector[String]],
       endless: Boolean
   ) extends IBClient[IO]:
     def requestOnly[Req <: RequestMsg: MsgEncoder](request: Req): IO[Unit] =
-      encoded(request).flatMap(f => sent.update(_ :+ f))
+      encoded(request).flatMap(f => sent.update(_ :+ f) *> events.update(_ :+ s"send ${f.head}"))
     def subscribe: Resource[IO, Stream[IO, ResponseMsg]] =
-      Resource.pure(Stream.emits(incoming) ++ (if endless then Stream.never[IO] else Stream.empty))
+      Resource.eval(events.update(_ :+ "subscribe")).as(
+        Stream.emits(incoming) ++ (if endless then Stream.never[IO] else Stream.empty)
+      )
     def fetchSingleResponse[Resp <: ResponseMsg: ClassTag]: IO[Resp] =
       Stream.emits(incoming).covary[IO].collectFirst { case r: Resp => r }.compile.lastOrError
     def fetchResponseStream[Resp <: ResponseMsg: ClassTag]: Stream[IO, Resp] =
@@ -70,6 +75,5 @@ object Wire:
   def endlessFakeClient(incoming: ResponseMsg*): IO[FakeClient] = makeFakeClient(incoming.toList, endless = true)
 
   private def makeFakeClient(incoming: List[ResponseMsg], endless: Boolean): IO[FakeClient] =
-    (Ref.of[IO, Vector[List[String]]](Vector.empty), Mutex[IO], Mutex[IO], Mutex[IO]).mapN(
-      FakeClient(incoming, _, _, _, _, endless)
-    )
+    (Ref.of[IO, Vector[List[String]]](Vector.empty), Mutex[IO], Mutex[IO], Mutex[IO], Ref.of[IO, Vector[String]](Vector.empty))
+      .mapN(FakeClient(incoming, _, _, _, _, _, endless))

@@ -32,6 +32,11 @@ object Portfolio:
     */
   private def isNotice(code: Int): Boolean = MarketData.isWarning(code) || code == 1102
 
+  /** TWS notices that end an account updates subscription: 2100 (this client was unsubscribed from account data)
+    * and 2101 (the subscription was refused because another client is subscribed to a different account).
+    */
+  def isAccountSubscriptionLost(code: Int): Boolean = code == 2100 || code == 2101
+
   /** For the stream `what`: fails when the connection to TWS or to IB is lost, so it never waits forever, and
     * ignores any other message.
     */
@@ -82,7 +87,8 @@ object Portfolio:
       case e: AccountDownloadEnd if mine(e.accountName) => Stream.emit(e)
       case ResponseMsg.Unreadable(fields, reason, _) if fields.headOption.exists(AccountUpdateMsgIds) =>
         Stream.raiseError[F](Unreadable("account updates", fields, reason))
-      case ErrorDetail(-1, code, text, _) if !isNotice(code) && !MarketData.isConnectionLoss(code) =>
+      case ErrorDetail(-1, code, text, _)
+          if isAccountSubscriptionLost(code) || (!isNotice(code) && !MarketData.isConnectionLoss(code)) =>
         Stream.raiseError[F](RequestFailed("account updates", code, text))
       case msg => failOnConnectionLoss[F]("account updates")(msg)
     }
