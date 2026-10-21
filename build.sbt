@@ -1,5 +1,5 @@
 ThisBuild / organization := "org.quasigroup"
-ThisBuild / scalaVersion := "3.3.0"
+ThisBuild / scalaVersion := "3.10.0"
 
 val FS2Version = "3.7.0"
 val WeaverVersion = "0.8.3"

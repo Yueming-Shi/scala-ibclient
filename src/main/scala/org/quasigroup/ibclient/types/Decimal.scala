@@ -59,7 +59,7 @@ object Decimal:
 
   def parse(v: Double): Either[Throwable, Decimal] =
     if v == Double.MaxValue then Right(INVALID)
-    else if v.isZero then Right(ZERO)
+    else if v == 0.0 then Right(ZERO)
     else if v.isNaN || v.isInfinite then Right(NaN)
     else
       val df = new DecimalFormat("#")

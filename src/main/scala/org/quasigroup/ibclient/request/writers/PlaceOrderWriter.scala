@@ -57,7 +57,18 @@ object PlaceOrderWriter {
           yield ()
     yield ()
 
-  def apply(a: PlaceOrder)(using serverVersion: IBClient.ServerVersion): EncoderState = {
+  /** Writes a PlaceOrder message. The fields are written in TWS wire order, split into four sections because a
+    * single for-comprehension of ~180 steps overflows the Scala 3 typer (Recursion limit exceeded on 3.10).
+    */
+  def apply(a: PlaceOrder)(using serverVersion: IBClient.ServerVersion): EncoderState =
+    for
+      _ <- writeContractAndBasics(a)
+      _ <- writeExtendedFields(a)
+      _ <- writeAlgoPegAndConditions(a)
+      _ <- writeTrailingFields(a)
+    yield ()
+
+  private def writeContractAndBasics(a: PlaceOrder)(using serverVersion: IBClient.ServerVersion): EncoderState =
     val version = if serverVersion < MIN_SERVER_VER_NOT_HELD then 27 else 45
     for
       _ <- write(a.msgId)
@@ -125,6 +136,10 @@ object PlaceOrderWriter {
             }
           yield ()
         else writeNothing
+    yield ()
+
+  private def writeExtendedFields(a: PlaceOrder)(using serverVersion: IBClient.ServerVersion): EncoderState =
+    for
       _ <- write("")
       _ <- write(a.order.discretionaryAmt)
       _ <- write(a.order.goodAfterTime)
@@ -216,7 +231,10 @@ object PlaceOrderWriter {
             write(true).flatMap(_ => write(deltaNeutralContract))
           case None =>
             write(false)
+    yield ()
 
+  private def writeAlgoPegAndConditions(a: PlaceOrder): EncoderState =
+    for
       _ <- write(a.order.algoFields.map(_.strategy).getOrElse(AlgoStrategy.None))
       _ <-
         if a.order.algoFields.map(_.strategy).getOrElse(AlgoStrategy.None) != AlgoStrategy.None then
@@ -270,6 +288,10 @@ object PlaceOrderWriter {
             _ <- write(a.order.conditionFields.map(_.conditionsCancelOrder).getOrElse(false))
           yield ()
         else writeNothing
+    yield ()
+
+  private def writeTrailingFields(a: PlaceOrder): EncoderState =
+    for
       _ <- write(a.order.adjustedOrderType)
       _ <- write(a.order.triggerPrice)
       _ <- write(a.order.lmtPriceOffset)
@@ -306,5 +328,4 @@ object PlaceOrderWriter {
         then write(a.order.midOffsetAtWhole).flatMap(_ => write(a.order.midOffsetAtHalf))
         else writeNothing
     yield ()
-  }
 }
