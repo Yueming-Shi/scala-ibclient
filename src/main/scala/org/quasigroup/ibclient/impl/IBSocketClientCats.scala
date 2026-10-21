@@ -325,7 +325,7 @@ object IBSocketClientCats:
   def make[F[_]: Async: Console](settings: Settings = Settings()): Resource[F, IBClient[F]] =
     for
       port <- Resource.eval(checkPort(settings.port, settings.liveTrading).liftTo[F])
-      socket <- Network.forAsync[F].client(SocketAddress(settings.host, port))
+      socket <- Network.forAsync[F].connect(SocketAddress(settings.host, port))
       openOrdersLock <- Resource.eval(Mutex[F])
       positionsLock <- Resource.eval(Mutex[F])
       accountUpdatesLock <- Resource.eval(Mutex[F])
