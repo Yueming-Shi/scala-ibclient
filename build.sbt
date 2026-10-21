@@ -2,7 +2,7 @@ ThisBuild / organization := "org.quasigroup"
 ThisBuild / scalaVersion := "3.10.0"
 
 val FS2Version = "3.14.0"
-val WeaverVersion = "0.8.3"
+val WeaverVersion = "0.13.0"
 val KittenVersion = "3.0.0"
 val CatsMTLVersion = "1.3.1"
 val Log4CatsVersion = "2.6.0"
@@ -32,8 +32,8 @@ lazy val root = (project in file(".")).settings(
     "io.circe" %% "circe-core" % CirceVersion,
     "io.circe" %% "circe-generic" % CirceVersion,
     "io.circe" %% "circe-parser" % CirceVersion,
-    "com.disneystreaming" %% "weaver-cats" % WeaverVersion % Test,
-    "com.disneystreaming" %% "weaver-scalacheck" % WeaverVersion % Test
+    "org.typelevel" %% "weaver-cats" % WeaverVersion % Test,
+    "org.typelevel" %% "weaver-scalacheck" % WeaverVersion % Test
   ),
   testFrameworks += new TestFramework("weaver.framework.CatsEffect")
 )
