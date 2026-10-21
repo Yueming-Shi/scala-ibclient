@@ -10,8 +10,16 @@ val CatsRetryVersion = "3.1.0"
 val CirceVersion = "0.14.5"
 val ScalaXMLVersion = "2.1.0"
 
+// Scala 3.10 needs JDK 17 or newer to compile and run.
+val MinJavaVersion = 17
+
 lazy val root = (project in file(".")).settings(
   name := "scala-ibclient",
+  initialize := {
+    val _ = initialize.value
+    val javaVersion = sys.props("java.specification.version").split('.').last.toInt // "1.8" -> 8, "21" -> 21
+    require(javaVersion >= MinJavaVersion, s"scala-ibclient needs JDK $MinJavaVersion or newer, found $javaVersion")
+  },
   libraryDependencies ++= Seq(
     "org.scala-lang.modules" %% "scala-xml" % ScalaXMLVersion,
     "org.typelevel" %% "kittens" % KittenVersion,

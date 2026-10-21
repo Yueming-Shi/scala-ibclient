@@ -41,3 +41,5 @@ Source of this section: Conversation with Bing with minor adjustment, 5/11/2023
 # Prerequisite
 
 User of this project does require an interactive broker user account.
+
+Building needs JDK 17 or newer (Scala 3.10 requires it; JDK 21 is tested) and sbt 1.13. The build stops with a clear message on an older JDK.
