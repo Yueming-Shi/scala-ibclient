@@ -3,12 +3,12 @@ ThisBuild / scalaVersion := "3.10.0"
 
 val FS2Version = "3.14.0"
 val WeaverVersion = "0.13.0"
-val KittenVersion = "3.0.0"
-val CatsMTLVersion = "1.3.1"
-val Log4CatsVersion = "2.6.0"
-val CatsRetryVersion = "3.1.0"
-val CirceVersion = "0.14.5"
-val ScalaXMLVersion = "2.1.0"
+val KittenVersion = "3.5.0"
+val CatsMTLVersion = "1.7.0"
+val Log4CatsVersion = "2.8.0"
+val CatsRetryVersion = "4.0.0"
+val CirceVersion = "0.14.17"
+val ScalaXMLVersion = "2.5.0"
 
 // Scala 3.10 needs JDK 17 or newer to compile and run.
 val MinJavaVersion = 17
