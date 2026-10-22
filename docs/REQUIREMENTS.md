@@ -55,6 +55,8 @@ decoding; combo (BAG) contracts were sent without their legs.
 
 **Market-data diagnosis (paper TWS):** raw incoming frames for delayed IBM showed only TickReqParams (msg 81) and MarketDataType (msg 58), never TickPrice (msg 1). Live market-data type returned error 10168 ("Delayed market data is not enabled"). The decoder, delayed tick-type map (66-76), and reqMktData encoding were fine; paper/TWS simply has delayed market data disabled. The integration test now waits only for price/size ticks and is ignored with that message when none arrive, so `sbt test` stays green until delayed data is enabled in Account Management / TWS. Error 10168 is treated as a warning for the tick stream (same family as 10167).
 
+**Delayed quotes probe (manual, paper TWS):** `DelayedQuotesProbe` connects as client 83, asks for delayed data (`IB_MD_TYPE=4` for delayed-frozen), streams ESZ6 and SPY for 60 seconds, prints every tick and error for those two requests with Toronto timestamps, then cancels both and disconnects. It places no orders. Re-checked on 2026-10-21 at about 9:52 PM Toronto: TWS answers "MarketDataType = Delayed" for ESZ6 and 10167 / TickReqParams for SPY, but still sends no price or size ticks, so delayed data remains off for this paper user on the account side.
+
 **How we check it (unit tests, no TWS needed):** the request, cancel and data-type messages are compared field
 by field with the TWS API format; canned tickPrice / tickSize / tickString / tickGeneric / marketDataType /
 error messages are decoded from raw bytes; the tick stream keeps only its own ticker, ends at the snapshot end,
