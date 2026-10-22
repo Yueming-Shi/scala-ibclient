@@ -85,11 +85,13 @@ object DelayedQuotesProbe extends IOApp.Simple:
               )
             }
             .interruptAfter(60.seconds)
+            // Always cancel both subscriptions, also on errors or interruption; each attempt is independent.
+            .onFinalize(
+              (log("cancel both subscriptions") *> ib.cancelMktData(EsId).attempt *> ib.cancelMktData(SpyId).attempt)
+                .uncancelable.void
+            )
             .compile
             .drain
-          _ <- log("cancel both subscriptions")
-          _ <- ib.cancelMktData(EsId).attempt
-          _ <- ib.cancelMktData(SpyId).attempt
           _ <- IO.sleep(1.second)
           c <- counts.get
           _ <- log(s"SUMMARY messages ESZ6=${c.getOrElse(EsId, 0)} SPY=${c.getOrElse(SpyId, 0)} system=${c.getOrElse(-1, 0)}")
