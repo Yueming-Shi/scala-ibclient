@@ -8,6 +8,7 @@ import org.quasigroup.ibclient.response.ResponseMsg.*
 import org.quasigroup.ibclient.types.*
 
 import cats.effect.IO
+import cats.syntax.all.*
 import fs2.Stream
 import weaver.SimpleIOSuite
 
@@ -100,6 +101,31 @@ object MarketDataSpec extends SimpleIOSuite:
 
   test("marketDataType skips the version field") {
     decodeOne("58", "1", "42", "3").map(msg => expect.same(MarketDataType(42, MktDataType.Delayed), msg))
+  }
+
+  test("marketDataType decodes all four TWS codes and maps an unexpected code to Unknown") {
+    decodeAll(
+      frame("58", "1", "42", "1"),
+      frame("58", "1", "42", "2"),
+      frame("58", "1", "42", "4"),
+      frame("58", "1", "42", "9")
+    ).map(msgs =>
+      expect.same(
+        List(
+          MarketDataType(42, MktDataType.Realtime),
+          MarketDataType(42, MktDataType.Frozen),
+          MarketDataType(42, MktDataType.DelayedFrozen),
+          MarketDataType(42, MktDataType.Unknown)
+        ),
+        msgs
+      )
+    )
+  }
+
+  test("reqMarketDataType sends 1 to 4 for real-time, frozen, delayed and delayed-frozen") {
+    List(MktDataType.Realtime, MktDataType.Frozen, MktDataType.Delayed, MktDataType.DelayedFrozen)
+      .traverse(t => encoded[ReqMarketDataType](ReqMarketDataType(marketDataType = t)))
+      .map(fs => expect.same(List(List("59", "1", "1"), List("59", "1", "2"), List("59", "1", "3"), List("59", "1", "4")), fs))
   }
 
   test("error messages skip the version field") {

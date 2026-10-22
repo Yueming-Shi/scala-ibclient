@@ -58,7 +58,7 @@ object TypesCodec:
     summon[Encoder[Int]].contramap(_.ordinal)
 
   inline given Decoder[MktDataType] =
-    summon[Decoder[Int]].map(MktDataType.fromOrdinal)
+    summon[Decoder[Int]].map(i => MktDataType.values.lift(i).getOrElse(MktDataType.Unknown))
 
   inline given Decoder[NewsType] =
     summon[Decoder[Int]].map(NewsType.fromOrdinal)

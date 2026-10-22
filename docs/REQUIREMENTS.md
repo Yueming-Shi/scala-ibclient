@@ -45,8 +45,9 @@ without the opt-in; and `make` itself refuses a live port before connecting.
   request are part of the stream too.
 - Note: asking for a regulatory snapshot (`regulatorySnapshot = true`) costs USD 0.01 per request, even on
   the paper account.
-- `reqMarketDataType` chooses real-time, frozen, delayed or delayed-frozen data. Paper accounts without data
-  subscriptions can use delayed data.
+- `reqMarketDataType` chooses real-time (1), frozen (2), delayed (3) or delayed-frozen (4) data. Paper accounts
+  without data subscriptions can use delayed data. When TWS reports a data type code this client does not know,
+  it is read as "Unknown" instead of breaking the message.
 - The subscription is opened before the request is sent, so the first ticks are never missed.
 
 **Fixes made along the way:** delayed tick types (66 and above) were decoded as the wrong type; the
